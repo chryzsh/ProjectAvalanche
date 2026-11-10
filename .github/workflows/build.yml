@@ -51,6 +51,8 @@ jobs:
       # targets above leave out
       - run: cargo clippy -p ssx-movie --all-targets --features sandbox-probe -- -D warnings
       - run: cargo test --workspace
+      - name: Bundled controller mappings (gilrs)
+        run: cargo test --manifest-path vendor/gilrs-0.11.2/Cargo.toml --lib --locked
       # the movie decoder's sandbox on Linux (crates/ssx-movie/tests/sandbox.rs): its program read from outside while
       # it decodes the test card; each attempt of the probe stopped by the seccomp filter or its limits
       - name: The movie decoder's sandbox (Linux)

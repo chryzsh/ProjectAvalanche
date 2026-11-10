@@ -302,6 +302,104 @@ fn live_tricks(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy::input::gamepad::GamepadAxis;
+
+    fn live_buttons(
+        classic: bool,
+        buttons: &[(GamepadButton, f32)],
+        axes: &[(GamepadAxis, f32)],
+    ) -> (bool, TrickInput) {
+        use bevy::ecs::system::RunSystemOnce;
+        use bevy::input::gamepad::{
+            GamepadConnection, GamepadConnectionEvent, RawGamepadAxisChangedEvent, RawGamepadButtonChangedEvent,
+            RawGamepadEvent,
+        };
+        let mut app = App::new();
+        app.add_plugins(bevy::input::InputPlugin);
+        let id = app.world_mut().spawn_empty().id();
+        app.world_mut().write_message(GamepadConnectionEvent::new(
+            id,
+            GamepadConnection::Connected { name: "test pad".into(), vendor_id: None, product_id: None },
+        ));
+        app.update();
+        for &(button, value) in buttons {
+            app.world_mut()
+                .write_message(RawGamepadEvent::Button(RawGamepadButtonChangedEvent::new(id, button, value)));
+        }
+        for &(axis, value) in axes {
+            app.world_mut().write_message(RawGamepadEvent::Axis(RawGamepadAxisChangedEvent::new(id, axis, value)));
+        }
+        app.update();
+        app.world_mut()
+            .run_system_once(move |keys: Res<ButtonInput<KeyCode>>, pads: Query<&Gamepad>| {
+                (live_l2(&keys, &pads, false), live_tricks(&keys, &pads, false, false, classic))
+            })
+            .expect("the live trigger and trick systems")
+    }
+
+    #[test]
+    fn the_standard_layout_reads_independent_analog_triggers() {
+        for (lt, rt, expected_grind, expected_tweak, expected_signature) in [
+            (0.0, 0.0, false, false, false),
+            (0.49, 0.49, false, false, false),
+            (0.5, 0.49, true, false, false),
+            (0.49, 0.5, false, true, false),
+            (0.5, 0.5, true, true, true),
+            (1.0, 0.0, true, false, false),
+            (0.0, 1.0, false, true, false),
+            (1.0, 1.0, true, true, true),
+        ] {
+            let (grind, tricks) =
+                live_buttons(false, &[(GamepadButton::LeftTrigger2, lt), (GamepadButton::RightTrigger2, rt)], &[]);
+            assert_eq!(
+                (grind, tricks.tweak, tricks.signature),
+                (expected_grind, expected_tweak, expected_signature),
+                "LT={lt}, RT={rt}"
+            );
+            assert_eq!(
+                (tricks.x, tricks.y, tricks.lb, tricks.rb, tricks.lt, tricks.rt),
+                (false, false, false, false, false, false)
+            );
+        }
+        let (grind, tricks) =
+            live_buttons(false, &[(GamepadButton::LeftTrigger, 1.0), (GamepadButton::RightTrigger, 1.0)], &[]);
+        assert!(!grind && !tricks.tweak && !tricks.signature, "the bumpers are not the analog triggers");
+    }
+
+    #[test]
+    fn the_classic_layout_keeps_all_four_shoulder_channels_and_face_roles() {
+        for mask in 0u8..16 {
+            let held = [mask & 1 != 0, mask & 2 != 0, mask & 4 != 0, mask & 8 != 0];
+            let (_, tricks) = live_buttons(
+                true,
+                &[
+                    (GamepadButton::LeftTrigger, if held[0] { 1.0 } else { 0.0 }),
+                    (GamepadButton::RightTrigger, if held[1] { 1.0 } else { 0.0 }),
+                    (GamepadButton::LeftTrigger2, if held[2] { 0.5 } else { 0.49 }),
+                    (GamepadButton::RightTrigger2, if held[3] { 0.5 } else { 0.49 }),
+                ],
+                &[],
+            );
+            assert_eq!([tricks.lb, tricks.rb, tricks.lt, tricks.rt], held, "shoulder mask {mask:04b}");
+            assert_eq!(tricks.signature, mask == 15, "all four shoulders are required, mask {mask:04b}");
+            assert!(!tricks.tweak && !tricks.x && !tricks.y && !tricks.b && !tricks.a);
+        }
+        let (_, x) = live_buttons(true, &[(GamepadButton::West, 1.0)], &[]);
+        assert!(x.x && x.tweak, "Classic X remains the boost/tweak input");
+        assert!(!x.y && !x.signature && !x.lt && !x.rt);
+        let (_, y) = live_buttons(true, &[(GamepadButton::North, 1.0)], &[]);
+        assert!(y.y, "Classic Y remains the grind input");
+        assert!(!y.x && !y.tweak && !y.signature && !y.lt && !y.rt);
+    }
+
+    #[test]
+    fn unassigned_z_axes_are_not_globally_reinterpreted_as_triggers() {
+        for classic in [false, true] {
+            let (grind, tricks) = live_buttons(classic, &[], &[(GamepadAxis::LeftZ, 1.0), (GamepadAxis::RightZ, 1.0)]);
+            assert!(!grind, "an unrelated Z axis is not the grind button, Classic={classic}");
+            assert_eq!(tricks, TrickInput::default(), "Z axes need a device mapping, Classic={classic}");
+        }
+    }
 
     fn live(classic: bool, stick: Vec2, (right, up): (bool, bool)) -> Input {
         use bevy::ecs::system::RunSystemOnce;

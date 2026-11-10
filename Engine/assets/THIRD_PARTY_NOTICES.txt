@@ -7261,28 +7261,11 @@ DEALINGS IN THE SOFTWARE.
 License: Apache-2.0/MIT (used: MIT)
 Authors: Arvamer <arvamer@gmail.com>
 Repository: https://gitlab.com/gilrs-project/gilrs
+[LICENSE-APACHE: shared text 1]
 
-[SDL_GameControllerDB/LICENSE]
-Copyright (C) 1997-2025 Sam Lantinga <slouken@libsdl.org>
-
-This software is provided 'as-is', without any express or implied
-warranty.  In no event will the authors be held liable for any damages
-arising from the use of this software.
-
-Permission is granted to anyone to use this software for any purpose,
-including commercial applications, and to alter it and redistribute it
-freely, subject to the following restrictions:
-
-1. The origin of this software must not be misrepresented; you must not
-   claim that you wrote the original software. If you use this software
-   in a product, an acknowledgment in the product documentation would be
-   appreciated but is not required.
-2. Altered source versions must be plainly marked as such, and must not be
-   misrepresented as being the original software.
-3. This notice may not be removed or altered from any source distribution.
-
-[the standard MIT text (the package ships none)]
-Copyright (c) Arvamer <arvamer@gmail.com>
+[LICENSE-MIT]
+Copyright (c) 2016-2018 Mateusz Sieczko and other GilRs
+Developers
 
 Permission is hereby granted, free of charge, to any
 person obtaining a copy of this software and associated
@@ -7307,6 +7290,25 @@ CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
+
+[SDL_GameControllerDB/LICENSE]
+Copyright (C) 1997-2025 Sam Lantinga <slouken@libsdl.org>
+
+This software is provided 'as-is', without any express or implied
+warranty.  In no event will the authors be held liable for any damages
+arising from the use of this software.
+
+Permission is granted to anyone to use this software for any purpose,
+including commercial applications, and to alter it and redistribute it
+freely, subject to the following restrictions:
+
+1. The origin of this software must not be misrepresented; you must not
+   claim that you wrote the original software. If you use this software
+   in a product, an acknowledgment in the product documentation would be
+   appreciated but is not required.
+2. Altered source versions must be plainly marked as such, and must not be
+   misrepresented as being the original software.
+3. This notice may not be removed or altered from any source distribution.
 
 ----------------------------------------------------------------------------------------------------
 --- gilrs-core 0.6.8 ---
@@ -23415,7 +23417,7 @@ SHARED TEXTS
 ====================================================================================================
 
 ----------------------------------------------------------------------------------------------------
-Shared text 1 (185 uses)
+Shared text 1 (186 uses)
 ----------------------------------------------------------------------------------------------------
 Apache License
                         Version 2.0, January 2004

@@ -4,7 +4,7 @@ Each directory here is a crate exactly as published on crates.io (the `.crate` c
 `Cargo.toml.orig`, `Cargo.lock`, `.cargo_vcs_info.json`) plus the patches listed below, and nothing else. The
 workspace uses them through `[patch.crates-io]` in `Engine/Cargo.toml`; they are not workspace members (`exclude`), so
 our formatting, lints and tests do not run on them. Every patched place carries a comment that starts with
-`Project Avalanche patch` and names its patch (T1…T16 below).
+`Project Avalanche patch` and names its patch (T1…T20 below).
 
 **Licenses.** lightyear and bevy_replicon are MIT OR Apache-2.0. lightyear's published crates carry no license file;
 each lightyear directory holds `LICENSE-MIT` and `LICENSE-APACHE` from the lightyear repository at the commit the
@@ -13,6 +13,10 @@ each lightyear directory holds `LICENSE-MIT` and `LICENSE-APACHE` from the light
 `7af0114ca0763e076dc95302c5a095e6eff384e3`). Apache-2.0 §4(b) asks modified files to say so: the patch comments and
 this file do. rav1d 1.1.0 is BSD-2-Clause; its crate carries `COPYING` (VideoLAN, the dav1d authors, the Internet
 Security Research Group; published from `782dab2135ea64a057c097088a13eb8ed3cc3320`).
+gilrs 0.11.2 is MIT OR Apache-2.0; its published crate omits the root license files, so its directory also carries
+`LICENSE-MIT` and `LICENSE-APACHE` from its published commit `07e286e24b046cf39e5c367daa2770b805a64692` in
+`https://gitlab.com/gilrs-project/gilrs` (the commit recorded in `.cargo_vcs_info.json`). Its bundled
+`SDL_GameControllerDB/LICENSE` is retained unchanged (zlib, Sam Lantinga).
 
 **Decisions.** The user, 2026-10-23 (`Docs/architecture/multiplayer.md` §16, D18 and D19): patch lightyear in the
 workspace, keep `std` maths, fix the crash bugs in our copy, report nothing upstream. Measurements:
@@ -39,6 +43,7 @@ again (or drops it if the release has an equivalent fix); the line numbers below
 | `lightyear_core` 0.31.0 | T10 |
 | `bevy_replicon` 0.45.2 | T12, T14 |
 | `rav1d` 1.1.0 | T17, T18 |
+| `gilrs` 0.11.2 | T19, T20 |
 
 ## T1 — fragment reassembly is bounded (`lightyear_transport`)
 
@@ -362,7 +367,57 @@ and the tests). `src/internal.rs`: `Rav1dFrameContextTaskThreadPendingTasks` rem
 of addresses the derive made). Checked: `cargo build --release`, `cargo clippy --all-targets` (debug assertions on) and
 the same for `x86_64-pc-windows-gnu` of `ssx-movie`: no warning.
 
+## T19 — the Nacon GC-100 0110 uses its verified Linux controller mapping (`gilrs`, vendored for it)
+
+**Why.** The user's physical Nacon GC-100 (`3285:0607`, input/USB device version `0110`, xpad) has GUID
+`03000000853200000706000010010000`. gilrs 0.11.2's bundled database has the same USB device with version `0112`
+(`03000000853200000706000012010000`), but its UUID lookup is exact. The actual v0.3.1 game logs a missing mapping;
+the fallback maps native `ABS_Z` / `ABS_RZ` to `Axis::LeftZ` / `Axis::RightZ`, not to the analog trigger buttons
+the game reads. Three physical press/release cycles per trigger reached 0…255. Simultaneous headless Bevy apps on
+that same physical pad, one default and one exact-GUID mapped: the default trigger-button peaks stayed 0/0 with
+0/0 complete cycles; the mapped peaks reached 1/1 with 4/4 complete cycles, including both held together. Evidence:
+`Game-Data/Converted/handoff/lt-rt-20261110/`, `Docs/research/controller-input.md`. These are trigger-input proofs;
+they do not claim that every controller binding or post-fix ride has already passed a physical test.
+
+**What.** The published `.crate` was extracted unmodified first; its SHA-256 matches the registry checksum in the
+workspace lockfile: `902fb00d3f6398e635be22e5c837b303c501835cca7ac11a47bba138f7aafdd8` (37 published files).
+`SDL_GameControllerDB/gamecontrollerdb.txt` adds one Linux row for the observed **0110** GUID, copying the
+existing **0112** row's bindings and preserving that original row and every other mapping. The preceding T19
+comment identifies the modification. `lefttrigger:a2` and `righttrigger:a5` select this xpad layout's native
+`ABS_Z` and `ABS_RZ`. The ordinary build script includes that Linux mapping, and the ordinary database selects it:
+no runtime-library implementation change, process environment mutation, re-execution shim, new threshold or
+global interpretation of arbitrary controllers' Z axes. Windows' mappings and native backend are unchanged.
+The game and asset viewer receive the same dependency fix; Standard and Classic action layouts remain intact.
+
+`src/mapping/mod.rs` adds two Linux regression tests using the device's native-code ordering. One verifies all
+23 mapped native elements (including LT/RT as analog buttons, the four face buttons, shoulders, menu/thumb
+buttons, both sticks, and D-pad axes/buttons), absence of trigger signals in the Z-axis slots, and the mapped
+hat mask. The other checks that the original 0112 entry is preserved, neighboring GUIDs are not matched, and a
+Windows mapping cannot override the Linux row. The actual normal mapping parser/database are tested, not a copy.
+
+**Upgrade.** Replace the published gilrs crate on upgrade and reapply this one-row database addition only if the
+upstream mapping still lacks the exact GUID; keep its focused regression coverage. A database update that still
+contains only the 0112 GUID is not equivalent to this fix.
+
+## T20 — gilrs uses the primitive floating-point maximum (`gilrs`)
+
+**Why.** As a path dependency, gilrs exposes upstream's warnings instead of Cargo capping them for a registry
+crate. On rustc 1.99 its import of `std::f32` makes the two `f32::MAX` uses in `src/ff/mod.rs` resolve to the
+deprecated module constant. Both warnings are in the unmodified published source and are unrelated to T19.
+
+**What.** Remove only `f32` from that import, retaining `std::fmt`. The same two expressions now resolve to the
+primitive `f32` associated constant, whose value is identical. No gain-clamping behaviour changes and no lint
+is suppressed. Its T20 comment identifies the modification.
+
 ## Tests of the patched crates
+
+gilrs (2026-11-10, `Game-Data/Converted/handoff/nacon-v032/vendor-tests.log`):
+`cargo test --manifest-path vendor/gilrs-0.11.2/Cargo.toml --lib --locked` from `Engine/`, standalone target
+`.build/nacon-gilrs-tests`: **13 passed, 0 failed, 0 ignored**, warning-free after T20. The two T19 regressions are
+included. A scratch copy with the original published database restored fails the new exact-GUID test at the
+missing-row assertion; restoring the patched database passes. No live vendor source was reverted for that negative
+proof. Physical Bevy trigger-input A/B evidence predates the patch and is described under T19; the root session
+owns the final actual-game and complete-binding acceptance.
 
 Each crate's own tests, run standalone with the features the workspace uses, each against the other patched crates
 (`Game-Data/Converted/handoff/net0/d19/vendor_tests.txt`): `lightyear_transport` 76 + 1 (85 + 1 with `compression_lz4`;
