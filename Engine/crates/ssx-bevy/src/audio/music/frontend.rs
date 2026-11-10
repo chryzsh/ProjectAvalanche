@@ -480,6 +480,12 @@ impl FrontEndAudio {
                         info!("fe audio {l}");
                     }
                 }
+                if self.verbose {
+                    e.aems.verbose = true;
+                    for l in e.aems.log.drain(..) {
+                        info!("fe aems {:.0} {}", l.ms, l.text);
+                    }
+                }
                 if e.aems.log.len() > 4096 {
                     e.aems.log.drain(..2048);
                 }
