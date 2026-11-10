@@ -109,6 +109,26 @@ fn set_category(fe: &mut FrontEnd, env: &mut FeEnv, category: i32) {
     let ctx = inv.store_context(&fe.career, &fe.profile, drop.as_ref());
     inv.build_lists(&fe.career, &fe.profile, env.loc, drop.as_ref(), &ctx, kind);
     inv.build_selected_gear(&fe.career, &fe.profile, env.loc, drop.as_ref());
+    let stock: Vec<(u32, i64, u32, [u32; 2])> = inv
+        .store
+        .stock
+        .get(kind.max(0) as usize)
+        .into_iter()
+        .flatten()
+        .map(|o| (o.id, o.level, o.charlock, o.descriptions))
+        .collect();
+    fe.note(format!(
+        "equipment diag: category {category} kind {kind} rider {:#010x} ctx level {} stock {stock:x?}",
+        inv.rider, ctx.level
+    ));
+    for (name, list) in [("owned", &inv.owned_list), ("store", &inv.store_list)] {
+        for u in list.iter() {
+            fe.note(format!(
+                "equipment diag: {name} key {:#010x}/{} cost {} flags {:#x} asset {:?} secondary {:?} name {:?}",
+                u.key, u.src, u.cost, u.flags, u.asset, u.secondary, u.name
+            ));
+        }
+    }
     env.values.set_int(0x6C, inv.survival);
     env.values.set_int(0x64, inv.inventory_size);
     fe.equipment.inv = Some(inv);
