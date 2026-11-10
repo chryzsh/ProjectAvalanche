@@ -398,6 +398,7 @@ impl Ctx<'_> {
             LoadTarget::Level(_) => None,
         };
         if req.url.is_empty() {
+            ssx_core::eprintln!("avm1 diag: empty load url (loader {})", req.loader.is_some());
             if let Some(id) = target {
                 for (_, c) in self.player.children(id) {
                     self.player.remove(c);
@@ -455,6 +456,7 @@ impl Ctx<'_> {
             (r, _) => {
                 let why = r.err().map_or_else(|| "target clip gone".to_string(), |e| format!("{e:#}"));
                 self.vm.diag.note("load failed", &format!("{}: {why}", req.url));
+                ssx_core::eprintln!("avm1 diag: load failed {}: {why} (loader {})", req.url, req.loader.is_some());
                 if let Some(l) = req.loader {
                     let t = req.target_value();
                     self.notify_loader(l, "onLoadError", vec![t, Value::str("URLNotFound")]);
