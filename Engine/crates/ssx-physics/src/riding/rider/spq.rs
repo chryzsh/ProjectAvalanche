@@ -117,6 +117,25 @@ pub(super) fn spq(s: &mut RiderState, w: &World, dt: f32, correct: Option<()>) {
         }
     }
     s.close = close_to_ground(s.contact.as_ref(), s.surface.snow_depth);
+    let ground_joint_dist = s.contact.map(|c| (s.traj + s.graph.ground_offset - c.point).dot(c.normal));
+    if crate::landing::bail_ground_joint_experiment()
+        && s.graph.driven
+        && let Some(d) = ground_joint_dist
+    {
+        s.close = close_at(d, s.surface.snow_depth);
+    }
+    s.bail_diag = match (s.contact, ground_joint_dist) {
+        (Some(c), Some(d)) if s.landing.bail_on_landing && s.graph.driven => Some(BailDiag {
+            ticks: s.landing.landing_bail_ticks,
+            traj_dist: c.distance,
+            ground_joint_dist: d,
+            is_close: s.close.is_close,
+            is_very_close: s.close.is_very_close,
+            speed: s.speed(),
+            state: s.state,
+        }),
+        _ => None,
+    };
     let launch = LaunchInputs {
         velocity: s.traj_velocity,
         in_air,

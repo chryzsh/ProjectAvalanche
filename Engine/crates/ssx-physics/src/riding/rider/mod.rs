@@ -20,7 +20,7 @@ use crate::landing::{
     LandingState, UBER_CRASH_GATE_TICKS, UBER_RECOVER_HOP_TICKS, UBER_RECOVER_TRIGGER_CLEAR_TICKS, UberRecovery,
 };
 use crate::levelstart::{GoInputs, LevelStart, Phase};
-use crate::probe::{CloseToGround, ProbeInputs, close_to_ground};
+use crate::probe::{CloseToGround, ProbeInputs, close_at, close_to_ground};
 use crate::rootmotion::{
     GET_GOING_ANGLE, GET_GOING_END_TICKS, blend_out_weight, get_going_blend, get_going_delta, step_physics,
     world_motion,
@@ -225,6 +225,18 @@ pub struct RiderState {
     pub boundary: boundary::BoundaryWind,
     pub ghost_impact: Option<Vec3>,
     pub airborne_auto_upright: bool,
+    pub bail_diag: Option<BailDiag>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BailDiag {
+    pub ticks: f32,
+    pub traj_dist: f32,
+    pub ground_joint_dist: f32,
+    pub is_close: bool,
+    pub is_very_close: bool,
+    pub speed: f32,
+    pub state: RideState,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -405,6 +417,7 @@ impl RiderState {
             boundary: boundary::BoundaryWind::default(),
             ghost_impact: None,
             airborne_auto_upright: false,
+            bail_diag: None,
         };
         s.grind.tail_pos = s.traj;
         spq(&mut s, world, crate::DT_TICKS, None);

@@ -1,11 +1,11 @@
 use std::time::Instant;
 
 use bevy::prelude::*;
-use ssx_physics::SIM_HZ;
 use ssx_physics::death::DeathTimerEvent;
 use ssx_physics::rewind::RewindPad;
 use ssx_physics::rider::{RideState, RiderState};
 use ssx_physics::session::Execution;
+use ssx_physics::{KMH_PER_M_PER_TICK, SIM_HZ};
 
 use super::clock::{lerp_pose, pose_of};
 use super::controls::PadLock;
@@ -13,6 +13,8 @@ use super::scripted::{AutoRewind, avalanche_override, back_script};
 use super::start::level_start;
 use super::{CLASSIC_GRIND_HOLD_TICKS, CLASSIC_REWIND_HOLD_TICKS, CLASSIC_WINGSUIT_HOLD_TICKS, Clock, OutroRun, Ride};
 use crate::rider::anim::RiderAnimation;
+
+const BAIL_DIAG_PERIOD_TICKS: f32 = 15.0;
 
 impl Ride {
     fn outro_after_execution(&mut self, anim: Option<&mut RiderAnimation>) {
@@ -81,6 +83,27 @@ impl Ride {
                 run.assets = None;
             }
         }
+    }
+
+    fn log_bail_diag(&mut self) {
+        let Some(d) = self.state.bail_diag else {
+            self.bail_diag_logged = None;
+            return;
+        };
+        if self.bail_diag_logged.is_some_and(|last| d.ticks >= last && d.ticks < last + BAIL_DIAG_PERIOD_TICKS) {
+            return;
+        }
+        self.bail_diag_logged = Some(d.ticks);
+        info!(
+            "bail diag: t={:.0} traj_dist={:.3} ground_joint_dist={:.3} close={} very_close={} speed={:.1} state={:?}",
+            d.ticks,
+            d.traj_dist,
+            d.ground_joint_dist,
+            d.is_close,
+            d.is_very_close,
+            d.speed * KMH_PER_M_PER_TICK,
+            d.state
+        );
     }
 
     pub fn respawn(&mut self) {
@@ -281,6 +304,7 @@ impl Ride {
         let r2 = if held { 0.0 } else { self.r2 };
         let e = self.session.execute_with(&mut self.state, &self.world, &input, &tricks, r2, &pad, graph, &mut actors);
         self.log_messages();
+        self.log_bail_diag();
         if let Some(m) = self.map.as_mut() {
             let g = m.gates.update(&mut self.session, self.state.traj);
             if let Some(k) = g.passed {
