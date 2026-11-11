@@ -418,6 +418,12 @@ impl Ride {
             }
             None => None,
         };
+        info!(
+            "bail diag: thresholds close<={} very_close<={} (distance minus snow depth); ground joint experiment: {}",
+            ssx_physics::probe::CLOSE_TO_GROUND,
+            ssx_physics::probe::VERY_CLOSE_TO_GROUND,
+            ssx_physics::landing::bail_ground_joint_experiment()
+        );
         Some(Self {
             world: std::sync::Arc::new(setup.world),
             spawn: setup.spawn,
@@ -496,6 +502,7 @@ impl Ride {
             grind_since: None,
             grind_ended: None,
             messages_logged: 0.0,
+            bail_diag_logged: None,
             loadout,
             game_setup,
             live: setup.live,

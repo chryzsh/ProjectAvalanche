@@ -45,12 +45,14 @@ impl Default for CloseToGround {
 
 pub fn close_to_ground(contact: Option<&GroundContact>, snow_depth: f32) -> CloseToGround {
     match contact {
-        Some(c) => {
-            let d = c.distance - snow_depth;
-            CloseToGround { d, is_close: d <= CLOSE_TO_GROUND, is_very_close: d <= VERY_CLOSE_TO_GROUND }
-        }
+        Some(c) => close_at(c.distance, snow_depth),
         None => CloseToGround::default(),
     }
+}
+
+pub fn close_at(distance: f32, snow_depth: f32) -> CloseToGround {
+    let d = distance - snow_depth;
+    CloseToGround { d, is_close: d <= CLOSE_TO_GROUND, is_very_close: d <= VERY_CLOSE_TO_GROUND }
 }
 
 pub fn use_unfiltered(a: Option<Vec3>, b: Option<Vec3>, w: Vec3, cos_horizontal: f32) -> bool {
