@@ -162,6 +162,9 @@ impl RiderGraph {
         let (board_x, board_z, board_offset) = board.unwrap_or((Vec3::X, Vec3::Z, Vec3::ZERO));
         GraphFeedback {
             driven: dof.is_some() && ground.is_some() && board.is_some(),
+            has_dof: dof.is_some(),
+            has_board: board.is_some(),
+            ground_joint: ground,
             traj_height_dof: dof.unwrap_or(0.0),
             ground_offset: ground.unwrap_or(Vec3::ZERO),
             board_x,

@@ -257,6 +257,7 @@ pub struct Ride {
     grind_since: Option<f32>,
     grind_ended: Option<f32>,
     messages_logged: f64,
+    bail_diag_logged: Option<(f32, bool)>,
     pub loadout: ssx_assets::character::Loadout,
     pub game_setup: Option<ssx_physics::gear::GameSetup>,
     pub live: Option<live::LiveRules>,

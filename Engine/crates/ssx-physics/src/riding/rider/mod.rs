@@ -20,7 +20,7 @@ use crate::landing::{
     LandingState, UBER_CRASH_GATE_TICKS, UBER_RECOVER_HOP_TICKS, UBER_RECOVER_TRIGGER_CLEAR_TICKS, UberRecovery,
 };
 use crate::levelstart::{GoInputs, LevelStart, Phase};
-use crate::probe::{CloseToGround, ProbeInputs, close_to_ground};
+use crate::probe::{CloseToGround, ProbeInputs, close_at, close_to_ground};
 use crate::rootmotion::{
     GET_GOING_ANGLE, GET_GOING_END_TICKS, blend_out_weight, get_going_blend, get_going_delta, step_physics,
     world_motion,
@@ -145,6 +145,7 @@ pub struct RiderState {
     pub ground_normal: Vec3,
     pub contact: Option<GroundContact>,
     pub close: CloseToGround,
+    pub graph_close: CloseToGround,
     pub surface: SurfaceProperties,
     pub weights: Weights,
     pub carving: CarvingState,
@@ -225,6 +226,26 @@ pub struct RiderState {
     pub boundary: boundary::BoundaryWind,
     pub ghost_impact: Option<Vec3>,
     pub airborne_auto_upright: bool,
+    pub bail_diag: Option<BailDiag>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BailDiag {
+    pub bail: bool,
+    pub ticks: f32,
+    pub driven: bool,
+    pub has_dof: bool,
+    pub has_ground: bool,
+    pub has_board: bool,
+    pub ground_joint_offset: Option<Vec3>,
+    pub traj_dist: Option<f32>,
+    pub ground_joint_dist: Option<f32>,
+    pub is_close: bool,
+    pub is_very_close: bool,
+    pub graph_is_close: bool,
+    pub graph_is_very_close: bool,
+    pub speed: f32,
+    pub state: RideState,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -325,6 +346,7 @@ impl RiderState {
             ground_normal: normal,
             contact: None,
             close: CloseToGround::default(),
+            graph_close: CloseToGround::default(),
             surface,
             weights,
             carving: CarvingState::default(),
@@ -405,6 +427,7 @@ impl RiderState {
             boundary: boundary::BoundaryWind::default(),
             ghost_impact: None,
             airborne_auto_upright: false,
+            bail_diag: None,
         };
         s.grind.tail_pos = s.traj;
         spq(&mut s, world, crate::DT_TICKS, None);
@@ -419,6 +442,7 @@ impl RiderState {
         (s.traj, s.traj_cached, s.traj_cached_prev, s.level_start) = (traj, traj, traj, position);
         (s.alignment, s.traj_orientation, s.heading) = (t, t, t * Vec3::X);
         (s.contact, s.close, s.ballistic) = (None, CloseToGround::default(), BallisticRay::default());
+        s.graph_close = s.close;
         (s.ground_normal, s.weights) = (Vec3::Y, no_contact_weights());
         s.janked = JankedState::new(traj);
         s.grind.tail_pos = traj;

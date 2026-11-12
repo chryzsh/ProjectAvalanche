@@ -200,6 +200,7 @@ impl RiderAnimation {
             a.clip_count()
         )];
         v.extend(a.problems.iter().map(|p| format!("clip problem: {p}")));
+        v.push(format!("bail diag: {}", self.graph.joint_report()));
         if let Some(summary) = self.rig_ops.rigamate_summary() {
             v.push(format!("rigamate: {summary}"));
         }

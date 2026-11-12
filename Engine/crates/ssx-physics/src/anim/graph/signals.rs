@@ -50,8 +50,8 @@ impl RiderGraph {
         let riding = s.state == RideState::Riding;
         self.put("deltaTicks", dt);
         self.put_bool("BLN_InAir", self.producers.in_air_tag);
-        self.put_bool("BLN_IsCloseToGround", s.close.is_close);
-        self.put_bool("BLN_IsVeryCloseToGround", s.close.is_very_close);
+        self.put_bool("BLN_IsCloseToGround", s.graph_close.is_close);
+        self.put_bool("BLN_IsVeryCloseToGround", s.graph_close.is_very_close);
         self.put_bool("BLN_Janked", s.janked.janked);
         let take_off = s.state == RideState::Jump && self.producers.last_state == Some(RideState::Riding);
         let jumped = take_off || s.air_jumped;
