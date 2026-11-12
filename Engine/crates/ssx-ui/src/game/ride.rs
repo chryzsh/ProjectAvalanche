@@ -180,6 +180,7 @@ pub struct Posted {
     pub won: bool,
     pub best_not_kept: Option<ssx_assets::career::profile::BestNotKept>,
     pub medal: Option<ssx_assets::career::profile::Medal>,
+    pub new_best: bool,
 }
 
 pub fn own_tombstone(
@@ -203,7 +204,10 @@ pub fn post_event_results_with_splits(
     profile: &mut ssx_assets::career::Profile,
     rules: &ssx_assets::career::Rules,
 ) -> Posted {
+    let best_before = profile.explore_scores.get(&ctx.drop_key).map(|s| s.score);
     let career = career_results_with_splits(ctx, r, splits, profile, rules);
+    let best_after = profile.explore_scores.get(&ctx.drop_key).map(|s| s.score);
+    let new_best = best_after != best_before && best_after == Some(r.value);
     let medal = career.medal.map_or(-1, |m| m as i32);
     // TODO(guess): without a front end the game mode (0x825775C0) comes from the event's name (`exp_` 0, `chapter_` 1, else 3), with one from the launch; settle: none (the front end's is the game's).
     let game_mode = if let Some(f) = ui.fe.as_ref() {
@@ -229,8 +233,12 @@ pub fn post_event_results_with_splits(
         tutorial: super::fe::globe::TUTORIAL_DROPS.contains(&ctx.drop_key),
         character_pic: ui.fe.as_ref().map_or_else(String::new, |f| results_portrait(&f.career, rules, &ctx.character)),
     };
-    let posted =
-        Posted { won: input.career.success, best_not_kept: input.career.best_not_kept, medal: input.career.medal };
+    let posted = Posted {
+        won: input.career.success,
+        best_not_kept: input.career.best_not_kept,
+        medal: input.career.medal,
+        new_best,
+    };
     if !r.failed && r.geotag_credits > 0 {
         ui.values.set_int(0x228, (input.career.money_previous - r.geotag_credits) as i32);
     }

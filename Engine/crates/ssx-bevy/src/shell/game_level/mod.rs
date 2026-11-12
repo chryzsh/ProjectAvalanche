@@ -148,6 +148,7 @@ pub struct LevelGame {
     stopped: bool,
     ride_seconds: f32,
     save_due: bool,
+    ghost_due: Option<crate::ride::ghost::PendingGhost>,
     paused: bool,
     sim_hold: Option<ssx_ui::game::sim_hold::SimHold>,
     autoplay: bool,
@@ -188,6 +189,10 @@ impl LevelGame {
 
     pub fn take_save(&mut self) -> bool {
         std::mem::take(&mut self.save_due)
+    }
+
+    pub fn take_ghost(&mut self) -> Option<crate::ride::ghost::PendingGhost> {
+        self.ghost_due.take()
     }
 
     pub fn popup_presses(&self) -> u32 {
@@ -398,6 +403,7 @@ pub fn start(world: &mut World, load: LevelLoad) {
         stopped: false,
         ride_seconds: 0.0,
         save_due: false,
+        ghost_due: None,
         paused: false,
         sim_hold: None,
         autoplay: opts.autoplay,

@@ -130,6 +130,9 @@ impl Ride {
             if let Some(pb) = self.pose_blocks.as_mut() {
                 pb.respawned();
             }
+            if let Some(g) = self.ghost.as_mut() {
+                g.reset();
+            }
         }
     }
 
@@ -522,6 +525,13 @@ impl Ride {
                 && pb.failures == 1
             {
                 warn!("live: the pose block was not recorded: {err:#}");
+            }
+            if let Some(g) = self.ghost.as_mut()
+                && self.session.event.clock.running
+                && let Err(err) = g.step(self.session.event.clock.seconds, &self.state, a.graph(), a.posed().0)
+                && g.failures == 1
+            {
+                warn!("ghost: the ride's pose was not recorded: {err:#}");
             }
         }
         self.rewinding = r.active;
