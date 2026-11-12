@@ -1,5 +1,6 @@
 pub mod data;
 pub mod geotags;
+pub mod ghosts;
 pub mod globe;
 pub mod new_game;
 pub mod profile;
