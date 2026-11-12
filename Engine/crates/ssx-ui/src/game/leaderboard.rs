@@ -15,13 +15,20 @@ pub(crate) struct Entry {
 pub struct ExploreLeaderboard {
     pub rivals: Vec<(String, u32)>,
     pub pictures: std::collections::BTreeMap<String, String>,
+    pub personal_best: Option<(String, u32)>,
     rank: i32,
     beat_shown: bool,
 }
 
 impl Default for ExploreLeaderboard {
     fn default() -> Self {
-        ExploreLeaderboard { rivals: Vec::new(), pictures: Default::default(), rank: -1, beat_shown: false }
+        ExploreLeaderboard {
+            rivals: Vec::new(),
+            pictures: Default::default(),
+            personal_best: None,
+            rank: -1,
+            beat_shown: false,
+        }
     }
 }
 
@@ -81,6 +88,10 @@ impl ExploreLeaderboard {
                 picture: self.pictures.get(n).cloned().unwrap_or_default(),
             })
             .collect();
+        // TODO(guess): the personal-best row ranks as a rival's (kind 3) under the player's own name, no picture; known: the leaderboard adds a personal-best row from the local save (0x8250CB68) and its ghost is fetched as an ordinary leaderboard ghost (0x8253FB78 case 4); settle: the row's kind and picture under 0x8250CB68.
+        if let Some((name, best)) = &self.personal_best {
+            list.push(Entry { kind: 3, value: *best as i32, name: name.clone(), picture: String::new() });
+        }
         list.push(Entry { kind: 2, value: value.max(0.0) as i32, name: player.to_string(), picture: String::new() });
         sort_entries(&mut list, event_type.ranks_ascending(), false);
         let place = list.iter().position(|e| e.kind == 2).map_or(-1, |p| p as i32);

@@ -266,6 +266,33 @@ impl SaveSlot {
         state.write_file(&path).map_err(anyhow::Error::msg)
     }
 
+    pub fn dir(&self) -> PathBuf {
+        self.path.parent().filter(|d| !d.as_os_str().is_empty()).map_or_else(|| PathBuf::from("."), Path::to_path_buf)
+    }
+
+    pub(super) fn commit_ghost(&self, g: &crate::ride::ghost::PendingGhost) {
+        if self.no_saving {
+            info!("ghost save skipped: the player continues without saving");
+            return;
+        }
+        let dir = self.dir();
+        let r = (|| -> Result<usize> {
+            let mut store = ssx_assets::career::ghosts::GhostStore::load(&dir, &self.schema)?;
+            store.commit(&dir, &self.schema, g.track, g.score, &g.container)
+        })();
+        match r {
+            Ok(slot) => info!(
+                "ghost save: drop {:#010x} score {} in slot {slot} ({} samples, {} bytes): {}",
+                g.track,
+                g.score,
+                g.samples,
+                g.container.len(),
+                ssx_assets::career::ghosts::ghost_path(&dir, slot).display()
+            ),
+            Err(e) => error!("ghost save failed: {e:#}"),
+        }
+    }
+
     pub(super) fn write(&self, profile: &Profile, why: &str) {
         if self.no_saving {
             // TODO(guess): "Continue without saving" skips every save of the session; settle: the flag's readers in the save flows (0x83160D00's callers) and what clears it (0x83160D38).

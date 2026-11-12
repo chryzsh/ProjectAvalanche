@@ -124,6 +124,7 @@ pub(super) fn load(spec: &LevelSpec, id: &ContentId) -> Result<LevelData> {
         particles,
         load_secs: start.elapsed().as_secs_f32(),
         map_music: toml.music.clone(),
+        personal_best: None,
     })
 }
 

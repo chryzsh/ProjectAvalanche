@@ -27,7 +27,7 @@ pub fn post_map_results(
     r: &EventResult,
     run: Option<&MapRun>,
 ) -> Posted {
-    let mut posted = Posted { won: false, best_not_kept: None, medal: None };
+    let mut posted = Posted { won: false, best_not_kept: None, medal: None, new_best: false };
     let Some(fe) = ui.fe.as_mut() else { return posted };
     let rules = &fe.rules;
     let rider = rules.riders.get(character).copied().unwrap_or(0);
