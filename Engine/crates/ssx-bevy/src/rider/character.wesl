@@ -98,6 +98,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     }
 }
 
+    let glow_mask = pbr_input.material.base_color.a;
     if effect == WINGSUIT {
         if 0.0 > max(pbr_input.material.base_color.a, rider_dynamic().z) - 0.25 {
             discard;
@@ -170,9 +171,9 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         col = albedo * tint * (lit.rgb + rim_light * rider.rim_color.rgb + fill * rider.fill_color.rgb)
             + spec * spec_light * dyn_ao;
         if effect == APPAREL {
-            col += params.glow.rgb * d.a * rider_dynamic().y / max(light.misc.y, 1e-6);
+            col += params.glow.rgb * glow_mask * rider_dynamic().y / max(light.misc.y, 1e-6);
         } else if effect == BOARD {
-            col += params.board.y * d.a * rider_dynamic().y * albedo / max(light.misc.y, 1e-6);
+            col += params.board.y * glow_mask * rider_dynamic().y * albedo / max(light.misc.y, 1e-6);
         }
         col += holo_glow * albedo;
     }
