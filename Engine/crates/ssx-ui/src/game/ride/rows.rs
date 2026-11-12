@@ -5,6 +5,12 @@ use ssx_physics::event::EventDef;
 
 const MEDAL_NAMES: [&str; 3] =
     ["TXT_EXPLORE_GHOST_MEDAL_GOLD", "TXT_EXPLORE_GHOST_MEDAL_SILVER", "TXT_EXPLORE_GHOST_MEDAL_BRONZE"];
+pub const PERSONAL_BEST_SLOT: usize = MEDAL_NAMES.len();
+
+// TODO(guess): the personal-best ghost is named by its header's gamertag, or TXT_PERSONAL_BEST when the header has none; known: the local ghost is fetched as an ordinary leaderboard ghost (0x8253FB78 case 4), whose billboard carries the row's name; settle: the name the row takes under 0x8250CB68.
+pub fn personal_best_name(loc: &mut crate::game::loc::Localization, gamertag: &str) -> String {
+    if gamertag.is_empty() { loc.text("TXT_PERSONAL_BEST") } else { gamertag.to_string() }
+}
 
 #[derive(Clone, Debug, Default)]
 pub struct DropRivals {
@@ -65,8 +71,10 @@ impl RivalGhosts {
         let mut ghosts = Vec::new();
         let mut racers = Vec::new();
         for (k, (slot, g)) in self.replays.iter().enumerate() {
-            let key = MEDAL_NAMES.get(*slot).copied().unwrap_or_default();
-            let name = loc.text(key);
+            let name = match MEDAL_NAMES.get(*slot) {
+                Some(key) => loc.text(key),
+                None => personal_best_name(loc, &g.header.gamertag),
+            };
             let position = g.position(seconds);
             let active = !g.finished(seconds);
             let p = Vec3::from_array(position);

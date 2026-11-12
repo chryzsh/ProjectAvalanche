@@ -70,9 +70,13 @@ impl LevelLoad {
             .as_ref()
             .filter(|_| opts.launch.map.is_none())
             .and_then(|r| r.ride().world().events.iter().find(|e| e.key == opts.launch.drop).cloned());
-        let rivals = ssx_ui::game::ride::drop_rivals(&opts.big_root, def.as_ref());
+        let mut rivals = ssx_ui::game::ride::drop_rivals(&opts.big_root, def.as_ref());
         for p in &rivals.problems {
             warn!("level: {p}");
+        }
+        let personal_best = data.personal_best.as_ref().filter(|_| def.is_some());
+        if let Some(pb) = personal_best {
+            rivals.replays.push((ssx_ui::game::ride::PERSONAL_BEST_SLOT, pb.replay.clone()));
         }
         let geotags = if opts.launch.map.is_some() {
             Vec::new()
@@ -322,6 +326,12 @@ pub fn start(world: &mut World, load: LevelLoad) {
     };
     let mut feed = HudFeed::new(&opts.launch.rider);
     feed.explore.rivals = rivals.rivals;
+    if let Some((_, r)) = rivals.replays.iter().find(|(k, _)| *k == ssx_ui::game::ride::PERSONAL_BEST_SLOT) {
+        let loc = &mut world.resource_mut::<GameUiRes>().0.loc;
+        let name = ssx_ui::game::ride::personal_best_name(loc, &r.header.gamertag);
+        info!("level: the personal best {} ({name}) rides along", r.header.score);
+        feed.explore.personal_best = Some((name, r.header.score));
+    }
     if let Some(fe) = world.resource::<GameUiRes>().0.fe.as_ref() {
         feed.explore.pictures = fe.career.riders.iter().map(|r| (r.title.clone(), r.icon.clone())).collect();
     }

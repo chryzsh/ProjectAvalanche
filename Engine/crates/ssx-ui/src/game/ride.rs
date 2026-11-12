@@ -17,7 +17,9 @@ mod map;
 mod rows;
 
 pub use map::{MapRun, post_map_results};
-pub use rows::{DropRivals, RivalGhosts, board_rivals, drop_rivals, target_rows};
+pub use rows::{
+    DropRivals, PERSONAL_BEST_SLOT, RivalGhosts, board_rivals, drop_rivals, personal_best_name, target_rows,
+};
 
 #[derive(Clone, Debug)]
 pub struct RideOptions {

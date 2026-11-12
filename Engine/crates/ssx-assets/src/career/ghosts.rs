@@ -134,6 +134,30 @@ impl GhostStore {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct PersonalBest {
+    pub slot: usize,
+    pub score: u32,
+    pub replay: crate::ghosts::GhostReplay,
+}
+
+// TODO(guess): a port choice — the personal-best replay's id is 0x8000_0000 + its slot, apart from the disc ghosts' ids (a ghost's id names its billboard and the scripts' lookups); known: the fetcher (0x8253FB78 case 4) hands the slot's ghost over as a leaderboard ghost by slot; settle: none.
+pub const PERSONAL_BEST_ID: u32 = 0x8000_0000;
+
+pub fn load_personal_best(dir: &Path, schema: &SaveSchema, track: u32) -> Result<Option<PersonalBest>> {
+    let store = GhostStore::load(dir, schema)?;
+    let Some(row) = store.row(track) else { return Ok(None) };
+    let slot = row.ghost_id as usize;
+    if slot >= SLOTS || store.slots[slot] != track {
+        bail!("the ghosts index's row for drop {track:#010x} names slot {slot}, which is not its slot");
+    }
+    let bytes = read_ghost(dir, slot)?;
+    let file = ssx_formats::ghost::GhostFile::from_container(&bytes)
+        .with_context(|| format!("parsing {}", ghost_path(dir, slot).display()))?;
+    let replay = crate::ghosts::GhostReplay::from_file(PERSONAL_BEST_ID + slot as u32, &file)?;
+    Ok(Some(PersonalBest { slot, score: row.score, replay }))
+}
+
 pub fn read_ghost(dir: &Path, slot: usize) -> Result<Vec<u8>> {
     let path = ghost_path(dir, slot);
     let bytes = std::fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
@@ -194,6 +218,33 @@ mod tests {
         assert_eq!(again.commit(&dir, &s, 77, 90_000, b"BETTER").unwrap(), 0);
         assert_eq!(read_ghost(&dir, 0).unwrap(), b"BETTER");
         assert!(g.commit(&dir, &s, 78, 1, &vec![0u8; GHOST_BUFFER_SIZE]).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_personal_best_loads_back_as_a_replay() {
+        use ssx_formats::ghost::{BUILD, GhostRecorder, POSE_BLOCK_SIZE, PoseBlock, UserHeader};
+        let s = schema();
+        let dir = std::env::temp_dir().join(format!("pa-pb-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(load_personal_best(&dir, &s, 77).unwrap().is_none());
+        let mut r = GhostRecorder::with_interval(0.25);
+        for i in 0..5 {
+            let bytes: [u8; POSE_BLOCK_SIZE] = std::array::from_fn(|k| (k as u8).wrapping_mul(3).wrapping_add(i as u8));
+            r.sample(i as f32 * 0.25, [i as f32, 0.0, 1.0], 10.0 * i as f32, PoseBlock::parse(&bytes).unwrap());
+        }
+        let header = UserHeader { gamertag: "Rider".into(), gear_flags: 2, score: 92_631, build: BUILD };
+        let ghost = ssx_formats::ghost::compress(&r.to_file(header).write());
+        let mut g = GhostStore::default();
+        g.commit(&dir, &s, 78, 1, b"OTHER").unwrap();
+        assert_eq!(g.commit(&dir, &s, 77, 92_631, &ghost).unwrap(), 1);
+        let pb = load_personal_best(&dir, &s, 77).unwrap().unwrap();
+        assert_eq!((pb.slot, pb.score, pb.replay.id), (1, 92_631, PERSONAL_BEST_ID + 1));
+        assert_eq!(pb.replay.header.gamertag, "Rider");
+        assert_eq!(pb.replay.times.len(), 5);
+        assert_eq!(pb.replay.position(0.5), [2.0, 0.0, 1.0]);
+        assert!(load_personal_best(&dir, &s, 78).is_err());
+        assert!(load_personal_best(&dir, &s, 79).unwrap().is_none());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -2,7 +2,7 @@ use std::sync::mpsc::TryRecvError;
 use std::time::Instant;
 
 use anyhow::{Context, Result};
-use bevy::prelude::{Assets, Camera, Commands, Image, Query, Sprite, Vec2, Visibility, default, error, info};
+use bevy::prelude::{Assets, Camera, Commands, Image, Query, Sprite, Vec2, Visibility, default, error, info, warn};
 use ssx_ui::game::GameUi;
 
 use super::world::speech_block;
@@ -302,6 +302,28 @@ impl Shell {
         }
     }
 
+    fn personal_best(&self, drop: u32) -> Option<ssx_assets::career::ghosts::PersonalBest> {
+        let dir = self.save.dir();
+        match ssx_assets::career::ghosts::load_personal_best(&dir, &self.save.schema, drop) {
+            Ok(Some(pb)) => {
+                info!(
+                    "shell: the personal best of drop {drop:#010x}: {} by {} in ghost slot {} ({} samples over {:.2} s)",
+                    pb.score,
+                    pb.replay.header.gamertag,
+                    pb.slot,
+                    pb.replay.times.len(),
+                    pb.replay.duration()
+                );
+                Some(pb)
+            }
+            Ok(None) => None,
+            Err(e) => {
+                warn!("shell: the personal best of drop {drop:#010x} is unavailable: {e:#}");
+                None
+            }
+        }
+    }
+
     fn start_load(
         &mut self,
         ui: &mut GameUi,
@@ -339,6 +361,7 @@ impl Shell {
                 own_tombstone: ssx_ui::game::ride::own_tombstone_for(ui, l.drop),
                 live,
                 event_name: Some(l.event.clone()),
+                personal_best: self.personal_best(l.drop),
                 ..default()
             }),
             character: l.rider.clone(),
