@@ -69,6 +69,13 @@ pub struct TerrainMesh {
     pub triangles: Vec<[u32; 3]>,
     pub weights: Vec<[f32; 8]>,
     pub material: Option<ContentId>,
+    pub texture: Option<TerrainTexture>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct TerrainTexture {
+    pub material: usize,
+    pub uv: Vec<[f32; 2]>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -178,6 +185,13 @@ pub struct Map {
     pub toml: MapToml,
     pub definition: MapDefinition,
     pub props: Option<PropMeshes>,
+}
+
+impl Map {
+    pub fn terrain_image(&self, t: &TerrainMesh) -> Option<usize> {
+        let material = self.props.as_ref()?.model.materials.get(t.texture.as_ref()?.material)?;
+        material.base_colour_texture.filter(|r| r.tex_coord == 0).map(|r| r.image)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]

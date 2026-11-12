@@ -5,7 +5,7 @@ use gltf_json::validation::Checked;
 
 use super::accessor::{F32_VEC3, F32_VEC4, Layout, read_f32, read_indices};
 use super::gltf::{FileReader, with_buffers};
-use super::mesh::{Budget, Transform, triangles};
+use super::mesh::{Budget, Transform, UV_LAYOUTS, triangles};
 use super::uri::truncate;
 use super::{Limits, ModelError};
 
@@ -29,6 +29,8 @@ pub struct ScenePrimitive {
     pub terrain: Option<Vec<[f32; 8]>>,
     pub terrain_half: bool,
     pub material: Option<usize>,
+    pub base_texture: Option<u32>,
+    pub uv0: Option<Vec<[f32; 2]>>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -227,6 +229,21 @@ fn mesh(
         };
         let flip = det < 0.0;
         let triangles = tris.into_iter().map(|t| if flip { [t[0], t[2], t[1]] } else { t }).collect();
+        let material = p.material.map(|x| x.value());
+        let base_texture = material
+            .and_then(|k| root.materials.get(k))
+            .and_then(|m| m.pbr_metallic_roughness.base_color_texture.as_ref())
+            .map(|t| t.tex_coord);
+        let uv0 = match (base_texture, attr(Semantic::TexCoords(0))) {
+            (Some(_), Some(a)) => {
+                let v = read_f32(root, buffers, a, &UV_LAYOUTS, max).map_err(|e| format!("{what}: TEXCOORD_0: {e}"))?.0;
+                if v.len() != n * 2 {
+                    return Err(format!("{what}: TEXCOORD_0 has {} values for {n} positions", v.len() / 2));
+                }
+                Some(v.as_chunks::<2>().0.to_vec())
+            }
+            _ => None,
+        };
         out.primitives.push(ScenePrimitive {
             positions,
             triangles,
@@ -234,7 +251,9 @@ fn mesh(
             local_max: hi,
             terrain,
             terrain_half,
-            material: p.material.map(|x| x.value()),
+            material,
+            base_texture,
+            uv0,
         });
     }
     Ok(out)

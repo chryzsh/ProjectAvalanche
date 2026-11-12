@@ -42,9 +42,12 @@ struct SnowTracks {
 @group(constants::MATERIAL_BIND_GROUP) @binding(114) var track_lookup: texture_2d<u32>;
 @group(constants::MATERIAL_BIND_GROUP) @binding(115) var track_tiles: texture_2d_array<f32>;
 @group(constants::MATERIAL_BIND_GROUP) @binding(116) var track_sampler: sampler;
+@group(constants::MATERIAL_BIND_GROUP) @binding(118) var base_texture: texture_2d<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(119) var base_sampler: sampler;
 
 const NO_LAYER: u32 = 7u;
 const POWDER: u32 = 5u;
+const TEXTURE_COVERAGE_SHIFT: u32 = 14u;
 const FADE: vec4<f32> = vec4(0.02, 0.025, 2.5, 12.0);
 const SNOW_ALBEDO: f32 = 0.5;
 fn snow_tile(i: u32) -> f32 { return terrain.snow_tile[i / 4u][i % 4u]; }
@@ -163,7 +166,10 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     s.dy = dpdy(s.p);
 
     let w_snow = in.color;
-    let cov = 2.0 * in.uv.x - 1.0;
+    let textured = terrain.reflect.w > 0.5;
+    let uv_dx = dpdx(in.uv);
+    let uv_dy = dpdy(in.uv);
+    var cov = 2.0 * in.uv.x - 1.0;
     let code = u32(round(in.uv_b.y));
     let group = u32(round(terrain.snow_fall.w));
     var base_bits = (code >> 12u) & 3u;
@@ -184,6 +190,10 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         b = 0.0;
     } else if base_bits == 2u {
         b = 1.0;
+    }
+    if textured {
+        cov = f32((code >> TEXTURE_COVERAGE_SHIFT) & 255u) * (2.0 / 255.0) - 1.0;
+        b = 0.0;
     }
 
     let wp = vec4(in.world_position.xyz, 1.0);
@@ -250,7 +260,11 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     let snow_spec = mix(snow_specular(POWDER), snow_spec_types, fade_snow);
     var rock = vec3(0.0);
     var rock_spec = 0.0;
-    if cvg < 1.0 {
+    if textured && cvg < 1.0 {
+        let d1 = textureSampleGrad(base_texture, base_sampler, in.uv, uv_dx, uv_dy);
+        rock = d1.rgb * d1.rgb;
+        rock_spec = terrain.base[0].w * d1.a * d1.a;
+    } else if cvg < 1.0 {
         let w = planar_weights(in.world_normal);
         var d1 = vec4(0.0);
         var d2 = vec4(0.0);

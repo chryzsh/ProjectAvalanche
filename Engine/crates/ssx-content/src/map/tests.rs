@@ -30,6 +30,8 @@ struct G {
     views: Vec<String>,
     meshes: Vec<String>,
     nodes: Vec<String>,
+    materials: Vec<String>,
+    images: Vec<String>,
 }
 
 impl G {
@@ -73,6 +75,29 @@ impl G {
         self.meshes.len() - 1
     }
 
+    fn textured_quad(&mut self, uri: &str, uvs: bool) -> usize {
+        let m = self.quad(50.0, 0.0);
+        self.images.push(format!("{{\"uri\":\"{uri}\"}}"));
+        let image = self.images.len() - 1;
+        self.materials.push(format!("{{\"pbrMetallicRoughness\":{{\"baseColorTexture\":{{\"index\":{image}}}}}}}"));
+        let material = self.materials.len() - 1;
+        let uv = if uvs {
+            let data: Vec<u8> = [[0.0f32, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]
+                .iter()
+                .flatten()
+                .flat_map(|x| x.to_le_bytes())
+                .collect();
+            let v = self.view(&data);
+            self.accessors.push(format!("{{\"bufferView\":{v},\"componentType\":5126,\"count\":4,\"type\":\"VEC2\"}}"));
+            format!(",\"TEXCOORD_0\":{}", self.accessors.len() - 1)
+        } else {
+            String::new()
+        };
+        self.meshes[m] =
+            self.meshes[m].replacen("},\"indices\"", &format!("{uv}}},\"material\":{material},\"indices\""), 1);
+        m
+    }
+
     fn quad(&mut self, half: f32, y: f32) -> usize {
         let p = [[-half, y, -half], [half, y, -half], [half, y, half], [-half, y, half]];
         self.mesh(&p, &[0, 3, 1, 1, 3, 2])
@@ -85,12 +110,17 @@ impl G {
 
     fn text(&self, roots: &[usize]) -> String {
         let roots: Vec<String> = roots.iter().map(ToString::to_string).collect();
+        let textures: Vec<String> = (0..self.images.len()).map(|i| format!("{{\"source\":{i}}}")).collect();
         format!(
             "{{\"asset\":{{\"version\":\"2.0\"}},\"scene\":0,\"scenes\":[{{\"nodes\":[{}]}}],\"nodes\":[{}],\"meshes\":[{}],\
+             \"materials\":[{}],\"textures\":[{}],\"images\":[{}],\
              \"accessors\":[{}],\"bufferViews\":[{}],\"buffers\":[{{\"byteLength\":{},\"uri\":\"data:application/octet-stream;base64,{}\"}}]}}",
             roots.join(","),
             self.nodes.join(","),
             self.meshes.join(","),
+            self.materials.join(","),
+            textures.join(","),
+            self.images.join(","),
             self.accessors.join(","),
             self.views.join(","),
             self.bin.len(),
@@ -102,7 +132,12 @@ impl G {
 const RACE: &str = "[map]\ntitle = \"T\"\nscene = \"s.gltf\"\nmodes = [\"race\"]\n";
 
 fn read(toml: &str, scene: &str) -> Result<Map, MapError> {
-    let files = Files([("s.gltf".to_string(), scene.as_bytes().to_vec())].into_iter().collect());
+    read_with(toml, scene, &[])
+}
+
+fn read_with(toml: &str, scene: &str, more: &[(&str, Vec<u8>)]) -> Result<Map, MapError> {
+    let mut files = Files([("s.gltf".to_string(), scene.as_bytes().to_vec())].into_iter().collect());
+    files.0.extend(more.iter().map(|(name, bytes)| (name.to_string(), bytes.clone())));
     read_map(toml.as_bytes(), "map.toml", &files)
 }
 
@@ -171,6 +206,84 @@ fn a_small_race_reads_in_the_world_frame() {
     let sky = read(&format!("{RACE}sky = \"pack:sky/aurora\"\n"), &scene).expect("reads");
     assert_ne!(sim_hash(&lit), sim_hash(&m));
     assert_eq!(sim_hash(&sky), sim_hash(&m));
+}
+
+fn textured_race(uvs: bool) -> String {
+    let mut g = G::default();
+    let ground = g.textured_quad("tex.png", uvs);
+    let kids = [
+        g.node(&format!(
+            "{{\"name\":\"ground\",\"mesh\":{ground},\"extras\":{{\"ava_type\":\"terrain\",\"ava_surface\":\"rock\"}}}}"
+        )),
+        g.node("{\"name\":\"start\",\"translation\":[0,1,-40],\"extras\":{\"ava_type\":\"spawn\",\"ava_slot\":0}}"),
+        g.node("{\"name\":\"end\",\"translation\":[0,1,40],\"extras\":{\"ava_type\":\"finish\",\"ava_radius\":5}}"),
+    ];
+    let list: Vec<String> = kids.iter().map(ToString::to_string).collect();
+    let root = g.node(&format!("{{\"name\":\"course\",\"children\":[{}]}}", list.join(",")));
+    g.text(&[root])
+}
+
+#[test]
+fn a_terrain_with_a_base_colour_texture_keeps_its_uvs_and_image() {
+    let png = crate::test_dir::png_rgba(4, 4, [120, 90, 60, 255]);
+    let m = read_with(RACE, &textured_race(true), &[("tex.png", png)]).expect("reads");
+    let t = &m.definition.terrain[0];
+    let texture = t.texture.as_ref().expect("a texture");
+    assert_eq!((texture.material, texture.uv.len()), (0, 4));
+    assert_eq!(texture.uv[2], [1.0, 1.0]);
+    assert_eq!(m.terrain_image(t), Some(0));
+    let props = m.props.as_ref().expect("the scene's images are decoded");
+    assert_eq!((props.model.images.len(), props.ranges.len(), props.cost.vertices), (1, 0, 0));
+    assert!(props.cost.drawn_image_bytes > 0);
+    let mut g = G::default();
+    let plain = g.quad(50.0, 0.0);
+    let kids = [
+        g.node(&format!(
+            "{{\"name\":\"ground\",\"mesh\":{plain},\"extras\":{{\"ava_type\":\"terrain\",\"ava_surface\":\"rock\"}}}}"
+        )),
+        g.node("{\"name\":\"start\",\"translation\":[0,1,-40],\"extras\":{\"ava_type\":\"spawn\",\"ava_slot\":0}}"),
+        g.node("{\"name\":\"end\",\"translation\":[0,1,40],\"extras\":{\"ava_type\":\"finish\",\"ava_radius\":5}}"),
+    ];
+    let list: Vec<String> = kids.iter().map(ToString::to_string).collect();
+    let root = g.node(&format!("{{\"name\":\"course\",\"children\":[{}]}}", list.join(",")));
+    let untextured = read(RACE, &g.text(&[root])).expect("reads");
+    assert!(untextured.props.is_none() && untextured.definition.terrain[0].texture.is_none());
+    assert_eq!(sim_hash(&m), sim_hash(&untextured), "a texture is drawn, not simulated");
+}
+
+#[test]
+fn a_terrain_texture_that_is_missing_or_unplaced_is_refused() {
+    let e = read_with(RACE, &textured_race(true), &[]).expect_err("the texture file is missing");
+    assert!(e.to_string().contains("tex.png"), "{e}");
+    let png = crate::test_dir::png_rgba(4, 4, [120, 90, 60, 255]);
+    let e = read_with(RACE, &textured_race(false), &[("tex.png", png)]).expect_err("no TEXCOORD_0");
+    assert!(e.to_string().contains("TEXCOORD_0") && e.to_string().contains("course/ground"), "{e}");
+}
+
+#[test]
+fn the_package_check_accepts_a_textured_terrain_and_refuses_a_missing_texture() {
+    use crate::check::{Severity, check_package};
+    use crate::test_dir::TestDir;
+    let manifest = "[resource]\nname = \"pack\"\nversion = \"1.0.0\"\napi = 1\n[add]\n\"map/t\" = \"map.toml\"\n";
+    let d = TestDir::new("map-texture");
+    d.write("resource.toml", manifest);
+    d.write("map.toml", RACE);
+    d.write("s.gltf", &textured_race(true));
+    d.write_bytes("tex.png", &crate::test_dir::png_rgba(4, 4, [120, 90, 60, 255]));
+    let c = check_package(&d.0, &crate::texture::Limits::default());
+    assert_eq!(c.errors(), 0, "{:#?}", c.findings);
+    let (_, map) = &c.maps[&"pack:map/t".parse().unwrap()];
+    assert_eq!(map.terrain_image(&map.definition.terrain[0]), Some(0));
+    std::fs::remove_file(d.0.join("tex.png")).expect("removed");
+    let c = check_package(&d.0, &crate::texture::Limits::default());
+    let errors: Vec<String> = c
+        .findings
+        .iter()
+        .filter(|f| f.severity == Severity::Error)
+        .map(|f| format!("{}: {}", f.file, f.message))
+        .collect();
+    assert!(errors.iter().any(|e| e.contains("tex.png")), "{errors:#?}");
+    assert!(!c.maps.contains_key(&"pack:map/t".parse().unwrap()));
 }
 
 #[test]
@@ -429,6 +542,7 @@ fn the_helicopter_grid_holds_each_cells_highest_terrain() {
                 positions,
                 triangles,
                 material: None,
+                texture: None,
             })
             .collect(),
         ..MapDefinition::default()
