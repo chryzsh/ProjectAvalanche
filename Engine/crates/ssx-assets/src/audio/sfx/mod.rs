@@ -400,6 +400,7 @@ impl SfxEngine {
             r.inputs.enabled = on;
             r.inputs.armed = on;
         }
+        self.tricky.reset(&mut self.aems);
         self.tricky.enabled = on;
     }
 

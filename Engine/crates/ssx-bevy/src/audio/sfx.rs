@@ -34,6 +34,7 @@ pub struct Sfx {
     event_key: Option<u32>,
     held: Option<ssx_assets::sfx_game::RideAudio>,
     paused_frames: u32,
+    messages: MessageQueue,
     objects: ssx_assets::sfx_game::audio_objects::AudioObjects,
     character: String,
 }
@@ -226,6 +227,7 @@ pub fn start_level(world: &mut World, level: Option<SfxLevel>) {
         event_key: l.event_key,
         held: None,
         paused_frames: 0,
+        messages: MessageQueue::default(),
         objects: l.objects,
         character,
     });
@@ -276,6 +278,86 @@ const FRAME_DT: f32 = 1.0 / 30.0;
 
 #[derive(Default)]
 struct Accum(f32);
+
+const MESSAGES_HELD: usize = 256;
+
+#[derive(Clone, Debug, Default)]
+struct RideMessages {
+    rider_dead: bool,
+    speech: crate::audio::sfx_input::SpeechStep,
+    trick_update: Option<(i32, i32)>,
+    geotag_pickups: usize,
+    nis_message: Option<u8>,
+    nis_tags: Vec<String>,
+}
+
+impl RideMessages {
+    fn is_empty(&self) -> bool {
+        let s = &self.speech;
+        !self.rider_dead
+            && !s.race_start
+            && s.rider_dead.is_none()
+            && !s.death_timer_end
+            && s.flushed.iter().all(Option::is_none)
+            && self.trick_update.is_none()
+            && self.geotag_pickups == 0
+            && self.nis_message.is_none()
+            && self.nis_tags.is_empty()
+    }
+
+    fn merge(&mut self, next: &RideMessages) -> bool {
+        let (a, b) = (&self.speech, &next.speech);
+        let clash = (self.rider_dead && next.rider_dead)
+            || (a.race_start && b.race_start)
+            || (a.rider_dead.is_some() && b.rider_dead.is_some())
+            || (a.death_timer_end && b.death_timer_end)
+            || a.flushed.iter().zip(&b.flushed).any(|(x, y)| x.is_some() && y.is_some())
+            || (self.trick_update.is_some() && next.trick_update.is_some())
+            || (self.nis_message.is_some() && next.nis_message.is_some());
+        if clash {
+            return false;
+        }
+        self.rider_dead |= next.rider_dead;
+        self.speech.race_start |= b.race_start;
+        self.speech.rider_dead = self.speech.rider_dead.or(b.rider_dead);
+        self.speech.death_timer_end |= b.death_timer_end;
+        for (x, y) in self.speech.flushed.iter_mut().zip(&next.speech.flushed) {
+            *x = x.or(*y);
+        }
+        self.trick_update = self.trick_update.or(next.trick_update);
+        self.geotag_pickups += next.geotag_pickups;
+        self.nis_message = self.nis_message.or(next.nis_message);
+        self.nis_tags.extend(next.nis_tags.iter().cloned());
+        true
+    }
+}
+
+#[derive(Default)]
+struct MessageQueue(std::collections::VecDeque<RideMessages>);
+
+impl MessageQueue {
+    fn push(&mut self, m: RideMessages) {
+        if m.is_empty() {
+            return;
+        }
+        if self.0.len() >= MESSAGES_HELD {
+            warn!("sfx: {MESSAGES_HELD} game updates' messages held without an audio frame: the oldest dropped");
+            self.0.pop_front();
+        }
+        self.0.push_back(m);
+    }
+
+    fn next_frame(&mut self) -> RideMessages {
+        let Some(mut m) = self.0.pop_front() else { return RideMessages::default() };
+        while let Some(n) = self.0.front() {
+            if !m.merge(n) {
+                break;
+            }
+            self.0.pop_front();
+        }
+        m
+    }
+}
 
 struct DriveTimer {
     start: std::time::Instant,
@@ -392,7 +474,7 @@ fn drive_sfx(
             (i.drop_warning, i.tutorial)
         });
     let fresh = ride.steps != sfx.last_steps;
-    let mut intro = if fresh { sfx.intro.as_mut().map(|i| i.frame(&ride.state, ride.heli.as_ref())) } else { None };
+    let intro = if fresh { sfx.intro.as_mut().map(|i| i.frame(&ride.state, ride.heli.as_ref())) } else { None };
     marks[1] = std::time::Instant::now();
     let mut timer = DriveTimer { start: marks[0], lock_ns: 0 };
     acc.0 += time.delta_secs();
@@ -412,22 +494,31 @@ fn drive_sfx(
         sfx.track = InputTrack::default();
         sfx.speech.respawn(engine);
         sfx.held = None;
+        sfx.messages = MessageQueue::default();
     }
     if let Some((drop_warning, tutorial)) = intro_load {
         sfx.avalanche.drop_warning = drop_warning;
         engine.tutorial = tutorial;
     }
     marks[2] = std::time::Instant::now();
-    let mut rider_dead = fresh && ride.last_exec.is_some_and(|e| e.rider_dead.is_some());
-    let mut speech_events = if fresh {
-        ride.last_exec.as_ref().map(|e| crate::audio::sfx_input::SpeechStep::new(e, &ride.state))
-    } else {
-        None
+    let intro = intro.unwrap_or_default();
+    let mut update = RideMessages {
+        geotag_pickups: crate::audio::sfx_input::geotag_pickups(&ride.session, &mut sfx.geotags_seen),
+        nis_message: intro.nis_message,
+        nis_tags: intro.tags,
+        ..RideMessages::default()
     };
+    if fresh {
+        update.rider_dead = ride.last_exec.is_some_and(|e| e.rider_dead.is_some());
+        update.speech = ride
+            .last_exec
+            .as_ref()
+            .map(|e| crate::audio::sfx_input::SpeechStep::new(e, &ride.state))
+            .unwrap_or_default();
+        update.trick_update = ride.state.score.trick_update.map(|r| (r.kind as i32, r.interaction));
+    }
+    sfx.messages.push(update);
     sfx.last_steps = ride.steps;
-    let mut trick_update =
-        if fresh { ride.state.score.trick_update.map(|r| (r.kind as i32, r.interaction)) } else { None };
-    let mut geotag_pickups = crate::audio::sfx_input::geotag_pickups(&ride.session, &mut sfx.geotags_seen);
     let kind = crate::audio::sfx_input::event_kind(&ride.session);
     let dd = engine.remix_event_type == 3;
     let mut parts = [0.0f32; 4];
@@ -451,16 +542,15 @@ fn drive_sfx(
     while acc.0 >= FRAME_DT {
         acc.0 -= FRAME_DT;
         let mut from = std::time::Instant::now();
+        let msg = if paused && sfx.held.is_some() { RideMessages::default() } else { sfx.messages.next_frame() };
         let ev = FrameEvents {
-            rider_dead,
+            rider_dead: msg.rider_dead,
             ended_by_death: ended_by_death(&ride.session),
             reverb_zones: reverb_zones(&ride.session, ride.world()),
             advise_zones: crate::audio::sfx_input::advise_zones(&ride.session, ride.world()),
             sim_dt: ride.last_exec.map_or(ssx_physics::DT_TICKS, |e| e.dt) / ssx_physics::TICKS_PER_SECOND,
             ground_material: crate::audio::sfx_input::ground_material(&ride.state, ride.world(), &sfx.objects),
         };
-        rider_dead = false;
-        let nis = intro.take().unwrap_or_default();
         let r = match sfx.held.clone().filter(|_| paused) {
             Some(mut r) => {
                 r.paused = true;
@@ -470,7 +560,7 @@ fn drive_sfx(
             }
             None => {
                 let mut r = ride_audio(&ride.state, sfx.max_boost, ride.rewind_backwards, ev, &mut sfx.track);
-                r.trick_update = trick_update.take();
+                r.trick_update = msg.trick_update;
                 let (state, inside) = sfx.intro.as_ref().map_or((0, false), |i| i.reported());
                 let audio_type = sfx.intro.as_ref().map_or(0, |i| i.audio_type);
                 (r.nis, r.inside_heli, r.nis_audio_type, r.kind, r.deadly_descent) =
@@ -478,7 +568,7 @@ fn drive_sfx(
                 r.eog = crate::audio::sfx_input::end_of_game(&ride.session);
                 (r.time_dilating, r.time_dilation_state_one, r.time_dilation) = ride.session.executed_time_dilation();
                 sfx.rider.update(engine, &r);
-                for tag in &nis.tags {
+                for tag in &msg.nis_tags {
                     engine.fire_event(tag, &[]);
                 }
                 sfx.env.update(engine, &r);
@@ -487,21 +577,20 @@ fn drive_sfx(
                 r
             }
         };
-        if geotag_pickups > 0 {
+        if msg.geotag_pickups > 0 {
             let (crc, name) = crate::audio::sfx_input::GEOTAG_COLLECTED;
             match engine.aems.resolve(crc, name) {
                 Some(key) => {
-                    for _ in 0..geotag_pickups {
+                    for _ in 0..msg.geotag_pickups {
                         engine.fire(key, &[]);
                     }
                 }
                 None => warn!("sfx: no CSIS event HUD\\{name} (hudsfx_tuna.csi not loaded)"),
             }
-            geotag_pickups = 0;
         }
         part(0, &mut from);
         sfx.speech_time += FRAME_DT;
-        let step = speech_events.take().unwrap_or_default();
+        let step = msg.speech;
         if step.race_start {
             sfx.rider.race_start(engine);
         }
@@ -519,7 +608,7 @@ fn drive_sfx(
         part(1, &mut from);
         let camera = cameras.iter().next().map(|t| (t.translation().to_array(), (*t.forward()).to_array()));
         let now_ms = sfx.speech_time * 1000.0;
-        if let Some(m) = nis.nis_message {
+        if let Some(m) = msg.nis_message {
             sfx.heli.nis_state(engine, m, now_ms);
         }
         if !paused {
@@ -585,5 +674,55 @@ fn drive_sfx(
                 info!("speech {l}");
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn trick(k: i32) -> RideMessages {
+        RideMessages { trick_update: Some((k, 0)), ..RideMessages::default() }
+    }
+
+    fn geotag() -> RideMessages {
+        RideMessages { geotag_pickups: 1, ..RideMessages::default() }
+    }
+
+    #[test]
+    fn updates_between_audio_frames_are_delivered_once_in_order() {
+        let mut q = MessageQueue::default();
+        q.push(trick(1));
+        q.push(RideMessages::default());
+        q.push(geotag());
+        q.push(RideMessages { rider_dead: true, nis_tags: vec!["a".into()], ..RideMessages::default() });
+        q.push(trick(2));
+        q.push(RideMessages { nis_tags: vec!["b".into()], ..RideMessages::default() });
+        q.push(geotag());
+
+        let first = q.next_frame();
+        assert_eq!(first.trick_update, Some((1, 0)));
+        assert_eq!(first.geotag_pickups, 1);
+        assert!(first.rider_dead);
+        assert_eq!(first.nis_tags, ["a"]);
+
+        let second = q.next_frame();
+        assert_eq!(second.trick_update, Some((2, 0)));
+        assert_eq!(second.geotag_pickups, 1);
+        assert!(!second.rider_dead);
+        assert_eq!(second.nis_tags, ["b"]);
+
+        assert!(q.next_frame().is_empty());
+        assert!(q.0.is_empty());
+    }
+
+    #[test]
+    fn the_queue_is_bounded() {
+        let mut q = MessageQueue::default();
+        for k in 0..MESSAGES_HELD as i32 + 10 {
+            q.push(trick(k));
+        }
+        assert_eq!(q.0.len(), MESSAGES_HELD);
+        assert_eq!(q.next_frame().trick_update, Some((10, 0)));
     }
 }

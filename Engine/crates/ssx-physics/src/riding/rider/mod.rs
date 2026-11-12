@@ -231,8 +231,12 @@ pub struct RiderState {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BailDiag {
     pub ticks: f32,
-    pub traj_dist: f32,
-    pub ground_joint_dist: f32,
+    pub driven: bool,
+    pub has_dof: bool,
+    pub has_ground: bool,
+    pub has_board: bool,
+    pub traj_dist: Option<f32>,
+    pub ground_joint_dist: Option<f32>,
     pub is_close: bool,
     pub is_very_close: bool,
     pub speed: f32,

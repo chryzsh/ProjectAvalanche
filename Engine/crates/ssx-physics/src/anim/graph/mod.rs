@@ -64,6 +64,9 @@ impl CarveAnimTuning {
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct GraphFeedback {
     pub driven: bool,
+    pub has_dof: bool,
+    pub has_board: bool,
+    pub ground_joint: Option<Vec3>,
     pub traj_height_dof: f32,
     pub ground_offset: Vec3,
     pub board_x: Vec3,
@@ -449,6 +452,18 @@ impl RiderGraph {
 
     fn scripts_mut(&mut self) -> &mut crate::anim_lua::AnimScripts {
         self.scripts.get_mut().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    pub fn joint_report(&self) -> String {
+        format!(
+            "rig {} nodes, pose {} nodes; Ground joint {:?}, Board joint {:?}, height DOF {:?} of {} floats",
+            self.rig.nodes.len(),
+            self.pose.nodes.len(),
+            self.ground,
+            self.board,
+            self.height_dof,
+            self.pose.floats.len()
+        )
     }
 
     pub fn signal(&self, name: &str) -> f32 {

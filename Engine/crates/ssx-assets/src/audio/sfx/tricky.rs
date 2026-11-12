@@ -132,6 +132,9 @@ impl TrickySong {
 
     pub fn reset(&mut self, aems: &mut Aems) {
         self.stop(aems);
+        self.super_tricky = false;
+        self.paused = false;
+        self.rewinding = false;
     }
 
     pub fn sample_end(&mut self, value: i32) {
@@ -271,6 +274,29 @@ mod tests {
         t.rewind(&mut a, false);
         t.frame(&mut a, TRICKY_ALWAYS, 10);
         assert_eq!(t.playing, 5);
+    }
+
+    #[test]
+    fn a_reset_mid_super_tricky_releases_the_duck_and_frees_the_next_tricky() {
+        let (mut a, mut t) = race(TRICKY_ALWAYS);
+        t.post(&mut a, "SuperAwesomeModeStart", 0.0, TRICKY_ALWAYS);
+        assert_eq!(t.frame(&mut a, TRICKY_ALWAYS, 10), Some(true));
+        t.rewind(&mut a, true);
+        t.enabled = false;
+        t.reset(&mut a);
+        assert_eq!(t.frame(&mut a, TRICKY_ALWAYS, 10), Some(false));
+        assert_eq!(t.frame(&mut a, TRICKY_ALWAYS, 10), None);
+        assert_eq!(t.playing, -1);
+        t.enabled = true;
+        t.post(&mut a, "AwesomeModeStart", 0.0, TRICKY_ALWAYS);
+        assert_eq!(t.playing, 0);
+        t.post(&mut a, "SuperAwesomeModeStart", 0.0, TRICKY_ALWAYS);
+        assert_eq!(t.playing, 5);
+        assert_eq!(t.frame(&mut a, TRICKY_ALWAYS, 10), Some(true));
+        t.reset(&mut a);
+        assert_eq!(t.frame(&mut a, TRICKY_ALWAYS, 10), Some(false));
+        assert_eq!(t.frame(&mut a, TRICKY_ALWAYS, 10), None);
+        assert_eq!(t.playing, -1);
     }
 
     #[test]
