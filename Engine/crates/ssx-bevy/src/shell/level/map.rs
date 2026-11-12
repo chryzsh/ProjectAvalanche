@@ -36,7 +36,7 @@ pub(super) fn load(spec: &LevelSpec, id: &ContentId) -> Result<LevelData> {
             None => "a new track".into(),
         }
     );
-    let map_terrain = terrain::MapTerrain::build(&map.value.definition, &big_root)?;
+    let map_terrain = terrain::MapTerrain::build(id, &map.value, &big_root)?;
     let (vertices, triangles) = map_terrain.counts();
     let markers = map_markers(&content, &map.value.definition)?;
     let (mv, mt) = markers.iter().fold((0, 0), |(v, t), m| (v + m.look.vertices(), t + m.look.triangles()));

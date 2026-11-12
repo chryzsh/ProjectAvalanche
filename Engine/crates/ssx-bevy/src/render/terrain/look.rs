@@ -70,6 +70,7 @@ pub struct TerrainLook {
     pub snow_blend_range: f32,
     pub snow_fall_direction: [f32; 3],
     pub defaulted: Vec<String>,
+    pub texture: Option<(ContentId, usize)>,
 }
 
 impl TerrainLook {
@@ -144,6 +145,7 @@ impl TerrainLook {
             snow_blend_range,
             snow_fall_direction,
             defaulted,
+            texture: None,
         })
     }
 }
@@ -179,6 +181,9 @@ impl TrackLooks {
             let [b1, b2] = &look.base;
             let surface = |s: &SurfaceLook| format!("{} {}/m", stem(&s.diffuse).trim_end_matches("_diff_spec"), s.tile);
             out += &format!("\n  {} x{files}: base1 {} | base2 {}", look.material, surface(b1), surface(b2));
+            if let Some((map, image)) = &look.texture {
+                out += &format!(" | base colour: {map} image {image}");
+            }
             if !look.defaulted.is_empty() {
                 out += &format!(" | unset: {}", compact_names(&look.defaulted));
             }

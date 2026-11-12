@@ -62,6 +62,20 @@ pub(super) fn check(c: &mut Checked, big: &Path, base: Option<&BTreeSet<ContentI
                 push(c, Severity::Error, &scene, (0, 0), format!("node \"{node}\" ava_material: {e:#}"));
             }
         }
+        for t in d.terrain.iter().filter(|t| t.texture.is_some()) {
+            let image = map.terrain_image(t).and_then(|k| map.props.as_ref()?.model.images.get(k).map(|i| (k, i)));
+            let message = match image {
+                Some((k, i)) => format!(
+                    "node \"{}\": its base colour texture (image {k}, {}) is drawn instead of its terrain material's \
+                     base surfaces; the snow stays the material's",
+                    t.node, i.file_name
+                ),
+                None => {
+                    format!("node \"{}\": its material's base colour texture is not among the scene's images", t.node)
+                }
+            };
+            push(c, if image.is_some() { Severity::Note } else { Severity::Error }, &scene, (0, 0), message);
+        }
         if let Some(t) = map.toml.midground.as_ref().filter(|t| base.is_some_and(|ids| ids.contains(t)))
             && let Err(e) = content.map_midground(t)
         {

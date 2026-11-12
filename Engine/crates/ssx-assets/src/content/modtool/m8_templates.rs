@@ -51,7 +51,10 @@ const MAP_README: &str = r#"# A map
 
 How it is drawn in the game (Docs/architecture/content.md §24): terrain and rails with a terrain material of the
 disc (`ava_material` "ssx:material/<name>" on the node; `terrain_default_mat` by default, `terrain_rail_red_mat` on a
-rail), a prop with its own mesh with its glTF material or `ava_material` naming a material of the package or the
+rail). A terrain node whose glTF material has a `baseColorTexture` (a PNG or JPEG of the package, placed by
+`TEXCOORD_0`) is drawn with that texture as its base surface instead of the material's rock textures; the material's
+snow, the snow tracks and the lighting stay. Group the terrain by texture: each texture is one material to draw. A
+prop with its own mesh is drawn with its glTF material or `ava_material` naming a material of the package or the
 disc; `midground` in `map.toml` shows a disc track's distant mountains around a new track. The game lists the map on
 its Maps page.
 

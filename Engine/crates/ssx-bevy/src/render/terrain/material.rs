@@ -152,6 +152,9 @@ pub struct TerrainExtension {
     pub track_tiles: Handle<Image>,
     #[uniform(117)]
     pub ripple: TerrainRippleUniform,
+    #[texture(118)]
+    #[sampler(119)]
+    pub base_texture: Handle<Image>,
     pub shadow_pass: ShadowPassKey,
 }
 
@@ -252,6 +255,7 @@ fn terrain_samplers() -> anyhow::Result<[crate::render::fx_states::SamplerStates
 pub struct PreparedLooks {
     looks: Vec<(TerrainParams, LookImages)>,
     images: crate::render::reload::BuiltImages,
+    white: usize,
 }
 
 struct LookImages {
@@ -260,12 +264,21 @@ struct LookImages {
     snow: usize,
     scatter: usize,
     sparkle: usize,
+    texture: Option<usize>,
+}
+
+fn white_texel(sampler: bevy::image::ImageSampler) -> Image {
+    use crate::render::terrain::textures::{MipChain, Texels, texture_2d};
+    let level = ssx_assets::texture::Image { width: 1, height: 1, rgba: vec![255; 4] };
+    texture_2d(&MipChain::from_levels(vec![level]), Texels::Linear, sampler)
 }
 
 impl PreparedLooks {
     pub fn decode(big_root: &std::path::Path, looks: &[TerrainLook]) -> anyhow::Result<PreparedLooks> {
+        use crate::render::reload::Recipe;
         use crate::render::terrain::textures::{
-            Texels, array_recipe, array_texture, decode_all, fit_layers, plane_recipe, texture_2d,
+            Origin, Texels, array_recipe, array_texture, decode_all, fit_layers, plane_recipe, source_recipe,
+            texture_2d,
         };
         use ssx_content::texture::Want;
         let want = |texels: Texels| if texels == Texels::NormalXy { Want::NORMAL } else { Want::PLANE };
@@ -307,6 +320,7 @@ impl PreparedLooks {
             Ok(images.len() - 1)
         };
         let mut out = Vec::with_capacity(looks.len());
+        let mut map_images: HashMap<(ContentId, usize), usize> = HashMap::new();
         for look in looks {
             let ids = LookImages {
                 diffuse: [
@@ -320,12 +334,43 @@ impl PreparedLooks {
                 snow: image(look.snow.iter().map(|l| l.normal.clone()).collect(), Texels::NormalXy, true, 2)?,
                 scatter: image(vec![look.scatter.clone()], Texels::Linear, false, 3)?,
                 sparkle: image(vec![look.sparkle.clone()], Texels::Linear, false, 4)?,
+                texture: None,
             };
             let mut params = TerrainParams::from_look(look, true);
             params.reflect.z = scatter_s.lod_bias;
             out.push((params, ids));
         }
-        Ok(PreparedLooks { looks: out, images })
+        let sampler = sampler_of(0)?;
+        for (look, (params, ids)) in looks.iter().zip(&mut out) {
+            let Some((map, image)) = &look.texture else { continue };
+            let key = (map.clone(), *image);
+            let index = match map_images.get(&key) {
+                Some(&i) => i,
+                None => {
+                    let src = ssx_content::material::TextureRef::ModelImage {
+                        model: map.clone(),
+                        image: *image,
+                        kind: ssx_content::texture::TextureKind::Color,
+                    };
+                    let want = ssx_content::texture::Want::PLANE;
+                    let chain =
+                        crate::render::terrain::textures::source_chain(big_root, &src, &Origin::Registry, &want)
+                            .map_err(|e| anyhow::anyhow!("{map}: its terrain texture (image {image}): {e:#}"))?;
+                    let recipe =
+                        source_recipe(big_root, &src, &Origin::Registry, want, Texels::Linear, sampler.clone())
+                            .ok_or_else(|| anyhow::anyhow!("{map}: no recipe for image {image}"))?;
+                    images.push((texture_2d(&chain, Texels::Linear, sampler.clone()), recipe));
+                    map_images.insert(key, images.len() - 1);
+                    images.len() - 1
+                }
+            };
+            ids.texture = Some(index);
+            params.reflect.w = 1.0;
+        }
+        let s = sampler.clone();
+        images.push((white_texel(sampler), Recipe::new(Vec::new(), move || Ok(white_texel(s.clone())))));
+        let white = images.len() - 1;
+        Ok(PreparedLooks { looks: out, images, white })
     }
 
     pub fn into_materials(
@@ -340,9 +385,10 @@ impl PreparedLooks {
             .map(|(image, recipe)| crate::render::reload::add(images, image, Some(recipe)))
             .collect();
         let shadow_pass = shadow_pass();
+        let white = self.white;
         self.looks
             .into_iter()
-            .map(|(params, LookImages { diffuse, normal, snow, scatter, sparkle })| {
+            .map(|(params, LookImages { diffuse, normal, snow, scatter, sparkle, texture })| {
                 std::array::from_fn(|group| TerrainMaterial {
                     base: StandardMaterial { base_color: Color::WHITE, ..default() },
                     extension: TerrainExtension {
@@ -362,6 +408,7 @@ impl PreparedLooks {
                         track_lookup: tracks.lookup.clone(),
                         track_tiles: tracks.tiles.clone(),
                         ripple: TerrainRippleUniform::default(),
+                        base_texture: handles[texture.unwrap_or(white)].clone(),
                         shadow_pass,
                     },
                 })
