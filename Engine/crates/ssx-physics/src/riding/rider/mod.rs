@@ -145,6 +145,7 @@ pub struct RiderState {
     pub ground_normal: Vec3,
     pub contact: Option<GroundContact>,
     pub close: CloseToGround,
+    pub graph_close: CloseToGround,
     pub surface: SurfaceProperties,
     pub weights: Weights,
     pub carving: CarvingState,
@@ -230,15 +231,19 @@ pub struct RiderState {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BailDiag {
+    pub bail: bool,
     pub ticks: f32,
     pub driven: bool,
     pub has_dof: bool,
     pub has_ground: bool,
     pub has_board: bool,
+    pub ground_joint_offset: Option<Vec3>,
     pub traj_dist: Option<f32>,
     pub ground_joint_dist: Option<f32>,
     pub is_close: bool,
     pub is_very_close: bool,
+    pub graph_is_close: bool,
+    pub graph_is_very_close: bool,
     pub speed: f32,
     pub state: RideState,
 }
@@ -341,6 +346,7 @@ impl RiderState {
             ground_normal: normal,
             contact: None,
             close: CloseToGround::default(),
+            graph_close: CloseToGround::default(),
             surface,
             weights,
             carving: CarvingState::default(),
@@ -436,6 +442,7 @@ impl RiderState {
         (s.traj, s.traj_cached, s.traj_cached_prev, s.level_start) = (traj, traj, traj, position);
         (s.alignment, s.traj_orientation, s.heading) = (t, t, t * Vec3::X);
         (s.contact, s.close, s.ballistic) = (None, CloseToGround::default(), BallisticRay::default());
+        s.graph_close = s.close;
         (s.ground_normal, s.weights) = (Vec3::Y, no_contact_weights());
         s.janked = JankedState::new(traj);
         s.grind.tail_pos = traj;

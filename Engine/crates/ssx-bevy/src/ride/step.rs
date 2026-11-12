@@ -15,6 +15,7 @@ use super::{CLASSIC_GRIND_HOLD_TICKS, CLASSIC_REWIND_HOLD_TICKS, CLASSIC_WINGSUI
 use crate::rider::anim::RiderAnimation;
 
 const BAIL_DIAG_PERIOD_TICKS: f32 = 15.0;
+const GROUND_DIAG_PERIOD_TICKS: f32 = 90.0;
 
 impl Ride {
     fn outro_after_execution(&mut self, anim: Option<&mut RiderAnimation>) {
@@ -90,22 +91,30 @@ impl Ride {
             self.bail_diag_logged = None;
             return;
         };
-        if self.bail_diag_logged.is_some_and(|last| d.ticks >= last && d.ticks < last + BAIL_DIAG_PERIOD_TICKS) {
+        let now = self.steps as f32;
+        let period = if d.bail { BAIL_DIAG_PERIOD_TICKS } else { GROUND_DIAG_PERIOD_TICKS };
+        if self.bail_diag_logged.is_some_and(|(last, bail)| bail == d.bail && now < last + period) {
             return;
         }
-        self.bail_diag_logged = Some(d.ticks);
+        self.bail_diag_logged = Some((now, d.bail));
         let dist = |v: Option<f32>| v.map_or("n/a".to_string(), |v| format!("{v:.3}"));
         info!(
-            "bail diag: t={:.0} driven={} (dof {} ground {} board {}) traj_dist={} ground_joint_dist={} close={} very_close={} speed={:.1} state={:?}",
+            "{} diag: step {} bail={} t={:.0} driven={} (dof {} ground {} board {}) ground_joint_offset={} traj_dist={} ground_joint_dist={} close={}/{} graph_close={}/{} speed={:.1} state={:?}",
+            if d.bail { "bail" } else { "ground" },
+            self.steps,
+            d.bail,
             d.ticks,
             d.driven,
             d.has_dof,
             d.has_ground,
             d.has_board,
+            d.ground_joint_offset.map_or("n/a".to_string(), |g| format!("{:.3}", g)),
             dist(d.traj_dist),
             dist(d.ground_joint_dist),
             d.is_close,
             d.is_very_close,
+            d.graph_is_close,
+            d.graph_is_very_close,
             d.speed * KMH_PER_M_PER_TICK,
             d.state
         );
