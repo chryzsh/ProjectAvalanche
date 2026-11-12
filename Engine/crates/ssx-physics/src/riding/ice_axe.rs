@@ -110,7 +110,11 @@ pub const CHOP_END_TICKS: f32 = 29.0;
 const CHOP_WINDOWS: [TagWindow; 3] =
     [TagWindow::new(6.0, 0.0, false), TagWindow::new(26.0, 0.0, false), TagWindow::new(26.0, 0.0, false)];
 const CHOPPED_TAG: BoolTag = BoolTag { value: true, mode: 1, reset_on_leave: false };
-const CHOP_RESET_TAG: FloatTag = FloatTag { value: 0.0, mode: 1, reset_on_leave: true, spline: 1.0 };
+// TODO(guess): the chop clip's weight tags (tick 26, ResetOnLeave) keep the arm down once they fire; known: the graph
+// (layer_pose_riding → sf_ice_axe_chop_layer_*) writes FLT_ice_axe_chop_weight_* only there, on neutral→chop (1.0)
+// and on chop→neutral (0.0), so chopped→neutral keeps the value and the original can only reach it at 0.0, while a
+// restore on leave gives the stuck arm and drain of #60; settle: decode FloatGameStateTag's leave for zero-length windows
+const CHOP_RESET_TAG: FloatTag = FloatTag { value: 0.0, mode: 1, reset_on_leave: false, spline: 1.0 };
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ChopLayer {
@@ -365,11 +369,14 @@ mod tests {
         assert_eq!(chopped_at, Some(2), "clip ticks 2, 4, 6");
         assert_eq!(weights[0], 1.0);
         assert_eq!(weights[12], 0.0, "clip tick 26");
-        assert_eq!(weights[13], 1.0, "restored on leave");
+        assert_eq!(weights[13], 0.0, "and stays down");
+        assert!(s.layers[1].chopped_node && s.chop() == 0.0, "the hold is invisible");
         assert!(s.read_inputs(&t, 1.0, 0.9, 0.5, 0.3, 0.25, 2.0).active, "chopped and leaning: the bite");
         assert!(!s.read_inputs(&t, 1.0, 0.1, 0.5, 0.3, 0.25, 2.0).active, "off ice");
         s.chop_update(&t, 0.1);
         assert!(!s.chopped && s.start_chop == [false, false]);
+        s.layers_update(false, 2.0);
+        assert!(!s.layers[1].chopped_node && s.chop() == 0.0, "chopped → neutral keeps the arm down");
         let mut a = IceAxeState { blend_weight: 1.0, start_chop: [true, false], ..IceAxeState::default() };
         a.layers_update(false, 2.0);
         a.start_chop = [false, false];

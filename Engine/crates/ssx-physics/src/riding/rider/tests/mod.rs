@@ -5,6 +5,7 @@ use crate::{DT_TICKS, KMH_PER_M_PER_TICK};
 
 mod air;
 mod boost_press;
+mod ice_axe;
 mod prewind;
 
 fn ride(w: &World, s: &mut RiderState, input: &Input, steps: usize, mut each: impl FnMut(&RiderState)) {
