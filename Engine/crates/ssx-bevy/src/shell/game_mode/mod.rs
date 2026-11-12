@@ -439,16 +439,11 @@ pub fn run(a: GameArgs) -> Result<AppExit> {
     crate::audio::sfx::register(&mut app);
     fe_audio::register(&mut app);
     game_level::register(&mut app);
-    let test_run = !a.script.is_empty()
-        || !a.level_scripts.is_empty()
-        || a.autoplay
-        || a.follow_prompts
-        || a.launch.is_some()
-        || a.launch_map.is_some()
-        || a.seconds.is_some()
-        || a.rides.is_some();
+    let script_pad = !a.script.is_empty() || !a.level_scripts.is_empty() || a.autoplay || a.follow_prompts;
+    let test_run =
+        script_pad || a.launch.is_some() || a.launch_map.is_some() || a.seconds.is_some() || a.rides.is_some();
     let real_focus = std::env::var("SSX_SHELL_REAL_FOCUS").is_ok_and(|v| v == "1");
-    app.insert_resource(PadSlots::new(test_run, !test_run || real_focus));
+    app.insert_resource(PadSlots::new(script_pad, !test_run || real_focus));
     display::register(&mut app, &a.window, !test_run, !test_run || real_focus);
     app.insert_resource(scene)
         .insert_resource(ui::globe::GlobeView { assets: globe_assets, ..default() })
