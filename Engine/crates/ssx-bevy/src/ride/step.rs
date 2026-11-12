@@ -94,11 +94,16 @@ impl Ride {
             return;
         }
         self.bail_diag_logged = Some(d.ticks);
+        let dist = |v: Option<f32>| v.map_or("n/a".to_string(), |v| format!("{v:.3}"));
         info!(
-            "bail diag: t={:.0} traj_dist={:.3} ground_joint_dist={:.3} close={} very_close={} speed={:.1} state={:?}",
+            "bail diag: t={:.0} driven={} (dof {} ground {} board {}) traj_dist={} ground_joint_dist={} close={} very_close={} speed={:.1} state={:?}",
             d.ticks,
-            d.traj_dist,
-            d.ground_joint_dist,
+            d.driven,
+            d.has_dof,
+            d.has_ground,
+            d.has_board,
+            dist(d.traj_dist),
+            dist(d.ground_joint_dist),
             d.is_close,
             d.is_very_close,
             d.speed * KMH_PER_M_PER_TICK,
