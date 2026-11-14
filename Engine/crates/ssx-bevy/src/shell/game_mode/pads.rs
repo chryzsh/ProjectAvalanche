@@ -263,6 +263,17 @@ mod tests {
     }
 
     #[test]
+    fn only_a_script_pad_reserves_device_0() {
+        let a = Entity::from_raw_u32(10).unwrap();
+        let mut real = PadSlots::new(false, false);
+        real.update_with(&[(a, true, false)]);
+        assert_eq!(real.device(a), Some(0));
+        let mut scripted = PadSlots::new(true, false);
+        scripted.update_with(&[(a, true, false)]);
+        assert_eq!(scripted.device(a), Some(1));
+    }
+
+    #[test]
     fn the_left_stick_is_the_d_pad() {
         let mut p = PadState::default();
         assert_eq!(p.step(Vec2::new(0.0, 0.5), [0.0; 2]), [Button::DpadUp]);
