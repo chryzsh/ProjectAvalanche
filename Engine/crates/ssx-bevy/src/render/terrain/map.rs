@@ -29,6 +29,36 @@ fn rail_weights(material: &ContentId) -> [f32; 8] {
     w
 }
 
+// TODO(guess): a port choice — a map's terrain is one surface for its vertex normals: the vertices of all terrain nodes
+// at the same position (to the millimetre) share the mean of all their faces' normals, as the physics' terrain clusters
+// do (level/map/collision.rs), so a vertex split for a texture seam, a UV seam or a node border is shaded and displaced
+// by the snow depth like its neighbours; the disc's terrain is welded per cage, which a split map mesh is not; settle:
+// nothing in the game builds terrain from split triangle meshes.
+fn terrain_normals(terrain: &[ssx_content::map::TerrainMesh]) -> Vec<Vec<[f32; 3]>> {
+    let key = |p: &[f32; 3]| p.map(|x| (x * 1000.0).round() as i64);
+    let mut sums: std::collections::HashMap<[i64; 3], (Vec3, u32)> = std::collections::HashMap::new();
+    for t in terrain {
+        for tri in &t.triangles {
+            let p = tri.map(|v| Vec3::from_array(t.positions[v as usize]));
+            let n = (p[1] - p[0]).cross(p[2] - p[0]).normalize_or_zero();
+            for &v in tri {
+                let e = sums.entry(key(&t.positions[v as usize])).or_insert((Vec3::ZERO, 0));
+                (e.0, e.1) = (e.0 + n, e.1 + 1);
+            }
+        }
+    }
+    terrain
+        .iter()
+        .map(|t| {
+            let normal = |p: &[f32; 3]| match sums.get(&key(p)) {
+                Some(&(sum, n)) if n > 0 => (sum / n as f32).to_array(),
+                _ => [0.0, 1.0, 0.0],
+            };
+            t.positions.iter().map(normal).collect()
+        })
+        .collect()
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PieceLook {
     pub material: ContentId,
@@ -49,6 +79,7 @@ impl MapTerrain {
         let default_terrain: ContentId = DEFAULT_TERRAIN_MATERIAL.parse().context("the default terrain material")?;
         let default_rail: ContentId = DEFAULT_RAIL_MATERIAL.parse().context("the default rail material")?;
         let mut out = MapTerrain { pieces: Vec::new(), cage_box: None, vertices: 0, triangles: 0 };
+        let mut normals = terrain_normals(&def.terrain).into_iter();
         for (k, t) in def.terrain.iter().enumerate() {
             let mesh = TriMesh {
                 positions: t.positions.clone(),
@@ -61,7 +92,8 @@ impl MapTerrain {
             let material = t.material.clone().unwrap_or_else(|| default_terrain.clone());
             let texture = map.terrain_image(t).map(|image| (id.clone(), image));
             let uv = texture.as_ref().and(t.texture.as_ref()).map(|x| x.uv.clone());
-            out.push(format!("map terrain {k}"), mesh, &depth, PieceLook { material, texture }, uv);
+            let look = PieceLook { material, texture };
+            out.push(format!("map terrain {k}"), mesh, normals.next(), &depth, look, uv);
         }
         for (k, r) in def.rails.iter().enumerate().filter(|(_, r)| !r.hidden) {
             let positions: Vec<[f32; 3]> = r.triangles.iter().flat_map(|t| t.corners).collect();
@@ -73,14 +105,24 @@ impl MapTerrain {
                 attributes: vec![rail_weights(&material); n],
                 indices: (0..n as u32).collect(),
             };
-            out.push(format!("map rail {k}"), mesh, &depth, PieceLook { material, texture: None }, None);
+            out.push(format!("map rail {k}"), mesh, None, &depth, PieceLook { material, texture: None }, None);
         }
         Ok(out)
     }
 
-    fn push(&mut self, label: String, mut mesh: TriMesh, depth: &[f32; 6], look: PieceLook, uv: Option<Vec<[f32; 2]>>) {
-        let loops: Vec<Vec<u32>> = mesh.indices.as_chunks::<3>().0.iter().map(|t| t.to_vec()).collect();
-        mesh.normals = game_vertex_normals(&mesh.positions, &loops);
+    fn push(
+        &mut self,
+        label: String,
+        mut mesh: TriMesh,
+        normals: Option<Vec<[f32; 3]>>,
+        depth: &[f32; 6],
+        look: PieceLook,
+        uv: Option<Vec<[f32; 2]>>,
+    ) {
+        mesh.normals = normals.unwrap_or_else(|| {
+            let loops: Vec<Vec<u32>> = mesh.indices.as_chunks::<3>().0.iter().map(|t| t.to_vec()).collect();
+            game_vertex_normals(&mesh.positions, &loops)
+        });
         for ((p, n), a) in mesh.positions.iter_mut().zip(&mesh.normals).zip(&mesh.attributes) {
             *p = terrain_vertex::displaced_position(*p, *n, a, depth);
         }
