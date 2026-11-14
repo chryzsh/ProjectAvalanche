@@ -1,7 +1,7 @@
 use ssx_physics::event::{Course, EventState, EventType};
 use ssx_physics::rider::{RiderState, World};
 
-const USER_GAMERTAG: u16 = 0x22B;
+pub const USER_GAMERTAG: u16 = 0x22B;
 const USER_GAMERPIC: u16 = 0x22C;
 use ssx_physics::scoring::{RecordKind, TrickRecord};
 use ssx_physics::session::tombstones::Tombstones;

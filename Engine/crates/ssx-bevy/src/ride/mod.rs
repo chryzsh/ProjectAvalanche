@@ -25,6 +25,7 @@ pub mod bots;
 mod clock;
 mod controls;
 mod draw;
+pub mod ghost;
 pub mod helicopter;
 mod hud;
 mod key_player;
@@ -269,6 +270,7 @@ pub struct Ride {
     pub pads_held: bool,
     pub chat_held: bool,
     pub pose_blocks: Option<ssx_physics::graph::LiveBlocks>,
+    pub ghost: Option<ghost::GhostRecording>,
     pub start_gate: live::StartGate,
     pub go_step: Option<u64>,
 }

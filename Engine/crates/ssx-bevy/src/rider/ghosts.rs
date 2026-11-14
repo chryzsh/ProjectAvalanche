@@ -117,13 +117,13 @@ impl Material for GhostMaterial {
 }
 
 pub struct Rival {
-    pub label: &'static str,
+    pub label: String,
     pub value: u32,
     pub replay: GhostReplay,
 }
 
 impl Rival {
-    pub fn short(&self) -> &'static str {
+    pub fn short(&self) -> &str {
         self.label.trim_start_matches("TXT_EXPLORE_GHOST_MEDAL_")
     }
 }
@@ -148,7 +148,13 @@ pub struct LoadedGhosts {
 #[derive(Resource)]
 struct PendingGhosts(Option<LoadedGhosts>);
 
-fn load(root: &Path, track: &str, drop_key: u32, riding: bool) -> Result<Option<LoadedGhosts>> {
+fn load(
+    root: &Path,
+    track: &str,
+    drop_key: u32,
+    riding: bool,
+    personal_best: Option<&ssx_assets::career::ghosts::PersonalBest>,
+) -> Result<Option<LoadedGhosts>> {
     let (events, end) = ssx_physics::spawn::load_drop_events(root, track, drop_key)?;
     let want = std::env::var("SSX_RIDE_EVENT").unwrap_or_else(|_| "race".into());
     let def = if want == "none" { None } else { ssx_physics::event::choose_event(events.iter(), &want) };
@@ -156,7 +162,7 @@ fn load(root: &Path, track: &str, drop_key: u32, riding: bool) -> Result<Option<
     let board = def.ghost_board();
     let rows: Vec<(usize, &ssx_physics::event::Rival)> =
         board.iter().enumerate().filter_map(|(k, g)| Some((k, def.rivals.get(g.row?)?))).collect();
-    if rows.is_empty() {
+    if rows.is_empty() && personal_best.is_none() {
         return Ok(None);
     }
     let model = ssx_assets::ghosts::load_model(root, track)?;
@@ -188,7 +194,15 @@ fn load(root: &Path, track: &str, drop_key: u32, riding: bool) -> Result<Option<
                 info!("ghost animation: {p}");
             }
         }
-        rivals.push((Rival { label: MEDAL_LABELS[k], value: row.value(), replay }, anim));
+        rivals.push((Rival { label: MEDAL_LABELS[k].to_string(), value: row.value(), replay }, anim));
+    }
+    if let Some(pb) = personal_best {
+        let (anim, _) = GhostAnimation::new(root, &db, &info.ghost, &floats)?;
+        let label = match pb.replay.header.gamertag.as_str() {
+            "" => "TXT_PERSONAL_BEST".to_string(),
+            tag => tag.to_string(),
+        };
+        rivals.push((Rival { label, value: pb.score, replay: pb.replay.clone() }, anim));
     }
     let normal_rel = model.parts.first().and_then(|p| p.material.textures.get("normalTexture").cloned());
     let normal_rel = normal_rel.context("ghost_character_mat has no normalTexture")?;
@@ -242,7 +256,13 @@ pub fn insert(world: &mut World, loaded: Loaded) {
     world.insert_resource(PendingGhosts(Some(loaded)));
 }
 
-pub fn load_level(big_root: Option<&Path>, track: &str, drop_key: Option<u32>, riding: bool) -> Option<Loaded> {
+pub fn load_level(
+    big_root: Option<&Path>,
+    track: &str,
+    drop_key: Option<u32>,
+    riding: bool,
+    personal_best: Option<&ssx_assets::career::ghosts::PersonalBest>,
+) -> Option<Loaded> {
     if crate::render::post::env_is("SSX_GHOSTS", "off") {
         info!("ghosts: off (SSX_GHOSTS=off)");
         return None;
@@ -251,7 +271,7 @@ pub fn load_level(big_root: Option<&Path>, track: &str, drop_key: Option<u32>, r
         return None;
     }
     let (Some(root), Some(drop_key)) = (big_root, drop_key) else { return None };
-    let loaded = match load(root, track, drop_key, riding) {
+    let loaded = match load(root, track, drop_key, riding, personal_best) {
         Ok(Some(l)) => l,
         Ok(None) => {
             info!("ghosts: the drop's event has no ranked rivals");

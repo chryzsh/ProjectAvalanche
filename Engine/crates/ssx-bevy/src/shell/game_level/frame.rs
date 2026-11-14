@@ -219,6 +219,25 @@ pub fn level_frame(
         }
         let won = posted.won;
         l.save_due = true;
+        if posted.new_best
+            && let Some(g) = ride.ghost.as_ref()
+        {
+            if g.recorder.is_empty() {
+                warn!("level: a personal best without a recorded ghost: nothing to save");
+            } else {
+                let name = match ui.values.str(ssx_ui::game::feed::USER_GAMERTAG) {
+                    "" => l.launch.rider.clone(),
+                    t => t.to_string(),
+                };
+                let gear = crate::ride::ghost::gear_flags(&ride.world().survival.slots);
+                l.ghost_due = Some(crate::ride::ghost::PendingGhost {
+                    track: l.launch.drop,
+                    score: r.value,
+                    container: g.container(&name, gear, r.value),
+                    samples: g.recorder.len(),
+                });
+            }
+        }
         let summary = ui.fe.as_ref().map_or_else(String::new, |f| game_mode::summary(&f.profile));
         info!(
             "level: results posted ({}, medal {:?} against the rows {:?}): {summary}",

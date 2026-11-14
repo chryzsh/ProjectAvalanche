@@ -77,6 +77,7 @@ pub struct RideOptions {
     pub live: Option<ride::live::LiveRules>,
     pub event_name: Option<String>,
     pub map_mode: Option<String>,
+    pub personal_best: Option<ssx_assets::career::ghosts::PersonalBest>,
 }
 
 #[derive(Clone, Debug)]
@@ -116,6 +117,7 @@ pub struct LevelData {
     particles: Option<crate::particles::LoadedParticles>,
     pub load_secs: f32,
     pub map_music: Option<ssx_content::ContentId>,
+    pub personal_best: Option<ssx_assets::career::ghosts::PersonalBest>,
 }
 
 impl LevelData {
@@ -206,6 +208,7 @@ impl LevelData {
         };
         let riding = ride.is_some();
         let root = big_root.as_deref();
+        let personal_best = spec.ride.as_ref().and_then(|o| o.personal_best.clone());
         let heli = helicopter::load_level(root, Some(&name), ride.as_ref().and_then(ride::RideLoad::heli_intro));
         let ghosts = if ride.as_ref().is_some_and(|r| {
             let session = &r.ride().session;
@@ -213,7 +216,7 @@ impl LevelData {
         }) {
             None
         } else {
-            ghosts::load_level(root, &name, drop_key, riding)
+            ghosts::load_level(root, &name, drop_key, riding, personal_best.as_ref())
         };
         let geotags = geotags::load_level(root, &name, riding);
         let bots = ride.as_ref().and_then(|r| bots::load_level(root, &name, drop_key, r.ride(), riders.as_ref()));
@@ -244,6 +247,7 @@ impl LevelData {
             particles,
             load_secs: start.elapsed().as_secs_f32(),
             map_music: None,
+            personal_best,
         })
     }
 

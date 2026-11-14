@@ -5,14 +5,21 @@ use crate::{Error, Result};
 
 mod pack;
 mod pose;
+mod record;
 
 pub use pack::*;
 pub use pose::*;
+pub use record::*;
 
 pub const CONTAINER_MAGIC: &[u8; 4] = b"GCMP";
 pub const MAGIC: &[u8; 4] = b"GHST";
 pub const VERSION: u16 = 0x1A;
+pub const BUILD: u32 = 0x6DA1D;
 pub const DESCRIPTOR_SIZE: usize = 0x24;
+pub const USER_HEADER_OFFSET: usize = 0x1C;
+pub const USER_HEADER_SIZE: usize = 0x3C;
+pub const TABLE_OFFSET: usize = USER_HEADER_OFFSET + USER_HEADER_SIZE;
+pub const GAMERTAG_BYTES: usize = 0x32;
 pub const POSI: [u8; 4] = *b"POSI";
 pub const GMPY: [u8; 4] = *b"GMPY";
 pub const SCOR: [u8; 4] = *b"SCOR";
@@ -48,6 +55,17 @@ pub fn decompress(data: &[u8]) -> Result<Vec<u8>> {
     Ok(out)
 }
 
+// TODO(guess): the zlib level of the game's GCMP writer; known: the disc ghosts inflate through `decompress` whatever the level, the reader checks only the size; settle: the compressor call under `GhostFile_WriteHeader` 0x8253DC98's caller.
+pub fn compress(image: &[u8]) -> Vec<u8> {
+    use std::io::Write as _;
+    let mut out = Vec::with_capacity(image.len() / 2 + 8);
+    out.extend_from_slice(&(image.len() as u32).to_be_bytes());
+    out.extend_from_slice(CONTAINER_MAGIC);
+    let mut z = flate2::write::ZlibEncoder::new(out, flate2::Compression::default());
+    z.write_all(image).expect("writing to a Vec");
+    z.finish().expect("writing to a Vec")
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UserHeader {
     pub gamertag: String,
@@ -72,10 +90,31 @@ pub struct Stream {
 }
 
 impl Stream {
+    pub fn new(tag: [u8; 4], element_size: u32, alignment: u32, interval: f32, times: Vec<f32>, data: Vec<u8>) -> Self {
+        let count = times.len() as u32;
+        Stream {
+            tag,
+            capacity: count,
+            element_size,
+            alignment,
+            interval,
+            times_offset: 0,
+            data_offset: 0,
+            data_size: count * element_size,
+            count,
+            times,
+            data,
+        }
+    }
+
     pub fn element(&self, i: usize) -> &[u8] {
         let n = self.element_size as usize;
         &self.data[i * n..(i + 1) * n]
     }
+}
+
+fn align_up(n: usize, a: usize) -> usize {
+    n.div_ceil(a.max(1)) * a.max(1)
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -159,6 +198,57 @@ impl GhostFile {
             return Err(Error::invalid(format!("GHST: regions end at {image_end:#x}, image is {:#x}", data.len())));
         }
         Ok(Self { crc, version, unk_1a, header, streams })
+    }
+
+    // TODO(guess): the region order (each stream's times then its data, data aligned to the descriptor's alignment) and a capacity equal to the count; known: `GhostFile_WriteHeader` 0x8253DC98 writes the header fields (table 0x58, user 0x1C / 0x3C, version 0x1A, build 0x6DA1D, the count from the descriptors' span) and the CRC over the image after the first word, the reader takes any order that ends with the image; settle: the stream allocation under `GhostRecorder_Init` 0x824BE0D8 (0x824B6970 per stream).
+    pub fn write(&self) -> Vec<u8> {
+        let count = self.streams.len();
+        let mut out = vec![0u8; TABLE_OFFSET + count * DESCRIPTOR_SIZE];
+        out[4..8].copy_from_slice(MAGIC);
+        out[8..12].copy_from_slice(&(TABLE_OFFSET as u32).to_be_bytes());
+        out[12..16].copy_from_slice(&(count as u32).to_be_bytes());
+        out[16..20].copy_from_slice(&(USER_HEADER_OFFSET as u32).to_be_bytes());
+        out[20..24].copy_from_slice(&(USER_HEADER_SIZE as u32).to_be_bytes());
+        out[24..26].copy_from_slice(&self.version.to_be_bytes());
+        out[26..28].copy_from_slice(&self.unk_1a.to_be_bytes());
+        let name = self.header.gamertag.as_bytes();
+        let n = name.len().min(GAMERTAG_BYTES - 1);
+        out[USER_HEADER_OFFSET..USER_HEADER_OFFSET + n].copy_from_slice(&name[..n]);
+        let g = USER_HEADER_OFFSET + GAMERTAG_BYTES;
+        out[g..g + 2].copy_from_slice(&self.header.gear_flags.to_be_bytes());
+        out[g + 2..g + 6].copy_from_slice(&self.header.score.to_be_bytes());
+        out[g + 6..g + 10].copy_from_slice(&self.header.build.to_be_bytes());
+        for (i, s) in self.streams.iter().enumerate() {
+            let times_offset = align_up(out.len(), 4);
+            out.resize(times_offset, 0);
+            for t in &s.times {
+                out.extend_from_slice(&t.to_be_bytes());
+            }
+            out.resize(times_offset + s.capacity as usize * 4, 0);
+            let data_offset = align_up(out.len(), s.alignment as usize);
+            out.resize(data_offset, 0);
+            out.extend_from_slice(&s.data);
+            out.resize(data_offset + s.data_size as usize, 0);
+            let d = TABLE_OFFSET + i * DESCRIPTOR_SIZE;
+            out[d..d + 4].copy_from_slice(&s.tag);
+            let words = [
+                s.capacity,
+                s.element_size,
+                s.alignment,
+                s.interval.to_bits(),
+                times_offset as u32,
+                data_offset as u32,
+                s.data_size,
+                s.count,
+            ];
+            for (k, w) in words.iter().enumerate() {
+                let at = d + 4 + k * 4;
+                out[at..at + 4].copy_from_slice(&w.to_be_bytes());
+            }
+        }
+        let crc = crc32(&out[4..]);
+        out[..4].copy_from_slice(&crc.to_be_bytes());
+        out
     }
 
     pub fn stream(&self, tag: [u8; 4]) -> Option<&Stream> {

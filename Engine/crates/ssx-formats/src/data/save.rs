@@ -1,4 +1,5 @@
 pub mod chunks;
+pub mod ghosts;
 
 use crate::reader::Reader;
 use crate::{Error, Result};

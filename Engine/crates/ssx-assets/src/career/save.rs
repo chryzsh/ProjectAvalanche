@@ -57,7 +57,7 @@ impl SaveSchema {
         self.audio.as_ref().map(|(fe, songs)| AudioStore::new(fe, songs))
     }
 
-    fn short(&self, table: &str, field: &str) -> Result<String> {
+    pub(crate) fn short(&self, table: &str, field: &str) -> Result<String> {
         self.field(table, field).map(|f| f.short.clone())
     }
 
@@ -101,7 +101,7 @@ impl SaveSchema {
         if raw == coded { true } else { coded > raw }
     }
 
-    fn table_short(&self, table: &str) -> Result<String> {
+    pub(crate) fn table_short(&self, table: &str) -> Result<String> {
         Ok(self.meta.table(table).ok_or_else(|| anyhow!("schema has no table {table}"))?.short.clone())
     }
 }
@@ -597,7 +597,7 @@ pub fn write_file(profile: &Profile, schema: &SaveSchema, extras: &SaveExtras, p
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::career::profile::{DropState, GeneratedItem};
 
@@ -661,7 +661,13 @@ mod tests {
                 .map(|n| (n.to_string(), 32))
                 .collect(),
             ),
-            ("common_explore_scores", "tggg", 300, "SSXV_COMMON", vec![("TRACKID".into(), 32)]),
+            (
+                "common_explore_scores",
+                "tggg",
+                300,
+                "SSXV_COMMON",
+                ["TRACKID", "SCORE", "GHOSTID"].map(|n| (n.to_string(), 32)).to_vec(),
+            ),
         ];
         let mut xml = String::from("<database name=\"x\" shortname=\"y\" version=\"6\">");
         let mut n = 0;
@@ -692,7 +698,7 @@ mod tests {
         }
     }
 
-    fn schema() -> SaveSchema {
+    pub(crate) fn schema() -> SaveSchema {
         schema_with(true)
     }
 

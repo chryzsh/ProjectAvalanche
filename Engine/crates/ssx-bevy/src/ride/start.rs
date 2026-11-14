@@ -435,6 +435,7 @@ impl Ride {
             }
             None => None,
         };
+        let ghost = (setup.game && setup.live.is_none() && setup.map.is_none()).then(super::ghost::GhostRecording::new);
         Some(Self {
             world: std::sync::Arc::new(setup.world),
             spawn: setup.spawn,
@@ -524,6 +525,7 @@ impl Ride {
             pads_held: false,
             chat_held: false,
             pose_blocks: setup.live.map(|_| ssx_physics::graph::LiveBlocks::default()),
+            ghost,
             start_gate: super::live::StartGate::Free,
             go_step: None,
         })

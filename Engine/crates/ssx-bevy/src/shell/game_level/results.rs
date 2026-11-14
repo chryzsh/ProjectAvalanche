@@ -25,7 +25,7 @@ pub(super) fn post_results(
         sim_content_id,
     };
     let Some((mut profile, rules)) = ui.fe.as_mut().map(|f| (std::mem::take(&mut f.profile), f.rules.clone())) else {
-        return ssx_ui::game::ride::Posted { won: false, best_not_kept: None, medal: None };
+        return ssx_ui::game::ride::Posted { won: false, best_not_kept: None, medal: None, new_best: false };
     };
     use ssx_assets::career::profile::DropState;
     let before = profile.drop_state(l.drop);

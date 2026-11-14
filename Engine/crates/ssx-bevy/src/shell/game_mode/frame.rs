@@ -364,6 +364,9 @@ pub(super) fn shell_step(mut shell: ResMut<Shell>, mut ui: ResMut<GameUiRes>, mu
     if f.level.as_mut().is_some_and(|l| l.take_save()) {
         s.write_save(&mut ui, "results", f.audio.as_deref(), f.ride.as_deref());
     }
+    if let Some(g) = f.level.as_mut().and_then(|l| l.take_ghost()) {
+        s.save.commit_ghost(&g);
+    }
     let sounds = ui.take_ui_sounds();
     let posts = ui.take_ui_posts();
     let messages = ui.take_fe_messages();
