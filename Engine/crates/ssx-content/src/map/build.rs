@@ -353,6 +353,24 @@ impl Builder<'_> {
             None => None,
         };
         for p in n.mesh.iter().flat_map(|m| &m.primitives) {
+            let texture = match (p.base_texture, p.material, &p.uv0) {
+                (Some(0), Some(material), Some(uv)) => Some(TerrainTexture { material, uv: uv.clone() }),
+                (Some(0), _, None) => {
+                    return Err(self.err(
+                        i,
+                        "TEXCOORD_0",
+                        "its material has a base colour texture, but the mesh has no TEXCOORD_0 to place it with",
+                    ));
+                }
+                (Some(c), ..) => {
+                    return Err(self.err(
+                        i,
+                        "",
+                        format!("its material's base colour texture reads TEXCOORD_{c}; a terrain's texture is placed by TEXCOORD_0"),
+                    ));
+                }
+                (None, ..) => None,
+            };
             if p.terrain_half {
                 return Err(self.err(
                     i,
@@ -381,6 +399,7 @@ impl Builder<'_> {
                 triangles: p.triangles.clone(),
                 weights,
                 material: a.material.clone(),
+                texture,
             });
         }
         Ok(())
@@ -583,7 +602,8 @@ pub fn read_map(toml_bytes: &[u8], toml_file: &str, files: &dyn FileReader) -> R
     let definition = build(&scene, &toml, &toml.scene)?;
     let nodes: Vec<usize> =
         definition.props.iter().filter(|p| matches!(p.look, PropLook::Mesh { .. })).map(|p| p.gltf_node).collect();
-    let props = if nodes.is_empty() {
+    let textured = definition.terrain.iter().any(|t| t.texture.is_some());
+    let props = if nodes.is_empty() && !textured {
         None
     } else {
         let (model, ranges, cost) = crate::model::decode_node_meshes(&toml.scene, &bytes, files, &limits, &nodes)

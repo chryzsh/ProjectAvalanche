@@ -106,7 +106,7 @@ impl Budget {
     }
 }
 
-const UV_LAYOUTS: [Layout; 3] =
+pub(super) const UV_LAYOUTS: [Layout; 3] =
     [F32_VEC2, (Type::Vec2, ComponentType::U8, true), (Type::Vec2, ComponentType::U16, true)];
 const COLOUR_LAYOUTS: [Layout; 6] = [
     F32_VEC3,

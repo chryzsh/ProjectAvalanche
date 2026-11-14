@@ -7,7 +7,7 @@ use bevy::prelude::Vec3;
 use ssx_assets::terrain::TriMesh;
 use ssx_assets::terrain_vertex;
 use ssx_content::ContentId;
-use ssx_content::map::{DEFAULT_RAIL_MATERIAL, DEFAULT_TERRAIN_MATERIAL, MapDefinition};
+use ssx_content::map::{DEFAULT_RAIL_MATERIAL, DEFAULT_TERRAIN_MATERIAL, Map};
 
 use super::look::{TerrainLook, TrackLooks};
 use super::material::PreparedLooks;
@@ -31,15 +31,22 @@ fn rail_weights(material: &ContentId) -> [f32; 8] {
     w
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PieceLook {
+    pub material: ContentId,
+    pub texture: Option<(ContentId, usize)>,
+}
+
 pub struct MapTerrain {
-    pieces: Vec<(Piece, ContentId)>,
+    pieces: Vec<(Piece, PieceLook)>,
     cage_box: Option<(Vec3, Vec3)>,
     vertices: usize,
     triangles: usize,
 }
 
 impl MapTerrain {
-    pub fn build(def: &MapDefinition, big_root: &Path) -> Result<MapTerrain> {
+    pub fn build(id: &ContentId, map: &Map, big_root: &Path) -> Result<MapTerrain> {
+        let def = &map.definition;
         let depth = terrain_vertex::snow_depths(big_root).context("the terrain's snow depths")?;
         let default_terrain: ContentId = DEFAULT_TERRAIN_MATERIAL.parse().context("the default terrain material")?;
         let default_rail: ContentId = DEFAULT_RAIL_MATERIAL.parse().context("the default rail material")?;
@@ -54,7 +61,9 @@ impl MapTerrain {
             let (lo, hi) = cage_box(&t.positions);
             out.cage_box = Some(out.cage_box.map_or((lo, hi), |(a, b)| (a.min(lo), b.max(hi))));
             let material = t.material.clone().unwrap_or_else(|| default_terrain.clone());
-            out.push(format!("map terrain {k}"), mesh, &depth, material);
+            let texture = map.terrain_image(t).map(|image| (id.clone(), image));
+            let uv = texture.as_ref().and(t.texture.as_ref()).map(|x| x.uv.clone());
+            out.push(format!("map terrain {k}"), mesh, &depth, PieceLook { material, texture }, uv);
         }
         for (k, r) in def.rails.iter().enumerate().filter(|(_, r)| !r.hidden) {
             let positions: Vec<[f32; 3]> = r.triangles.iter().flat_map(|t| t.corners).collect();
@@ -66,12 +75,12 @@ impl MapTerrain {
                 attributes: vec![rail_weights(&material); n],
                 indices: (0..n as u32).collect(),
             };
-            out.push(format!("map rail {k}"), mesh, &depth, material);
+            out.push(format!("map rail {k}"), mesh, &depth, PieceLook { material, texture: None }, None);
         }
         Ok(out)
     }
 
-    fn push(&mut self, label: String, mut mesh: TriMesh, depth: &[f32; 6], material: ContentId) {
+    fn push(&mut self, label: String, mut mesh: TriMesh, depth: &[f32; 6], look: PieceLook, uv: Option<Vec<[f32; 2]>>) {
         let loops: Vec<Vec<u32>> = mesh.indices.as_chunks::<3>().0.iter().map(|t| t.to_vec()).collect();
         mesh.normals = game_vertex_normals(&mesh.positions, &loops);
         for ((p, n), a) in mesh.positions.iter_mut().zip(&mesh.normals).zip(&mesh.attributes) {
@@ -80,15 +89,15 @@ impl MapTerrain {
         let layers = MeshLayers::of_weights(&mesh.attributes);
         let (v, t) = (mesh.positions.len(), mesh.triangle_count());
         (self.vertices, self.triangles) = (self.vertices + v, self.triangles + t);
-        let piece = Piece { label, layers: vec![layers; v], groups: vec![0; t], parts: vec![(v, t)], mesh };
-        self.pieces.push((piece, material));
+        let piece = Piece { label, layers: vec![layers; v], groups: vec![0; t], parts: vec![(v, t)], mesh, uv };
+        self.pieces.push((piece, look));
     }
 
     pub fn counts(&self) -> (usize, usize) {
         (self.vertices, self.triangles)
     }
 
-    pub fn into_track(self, name: &str) -> Result<(LoadedTrack, BTreeMap<String, ContentId>)> {
+    pub fn into_track(self, name: &str) -> Result<(LoadedTrack, BTreeMap<String, PieceLook>)> {
         let start = Instant::now();
         let snow_box = self.cage_box.context("a new track without terrain draws no ground")?;
         let mut track = LoadedTrack {
@@ -113,9 +122,9 @@ impl MapTerrain {
         Ok((track, materials))
     }
 
-    pub fn add_to(self, track: &mut LoadedTrack) -> BTreeMap<String, ContentId> {
+    pub fn add_to(self, track: &mut LoadedTrack) -> BTreeMap<String, PieceLook> {
         let mut materials = BTreeMap::new();
-        for (piece, material) in self.pieces {
+        for (piece, look) in self.pieces {
             if let Some((lo, hi)) = piece.mesh.bounds() {
                 let b = Bounds { min: Vec3::from_array(lo), max: Vec3::from_array(hi) };
                 track.bounds = track.bounds.union(b);
@@ -125,7 +134,7 @@ impl MapTerrain {
             track.stats.vertices += piece.mesh.positions.len();
             track.stats.triangles += piece.mesh.triangle_count();
             track.layer_counts.1 += usize::from(piece.layers.first().is_some_and(|l| l.base == 0));
-            materials.insert(piece.label.clone(), material);
+            materials.insert(piece.label.clone(), look);
             track.pieces.push(piece);
         }
         materials
@@ -163,7 +172,7 @@ impl MeshLayers {
 pub fn map_textured(
     big_root: &Path,
     base_track: Option<&str>,
-    pieces: &BTreeMap<String, ContentId>,
+    pieces: &BTreeMap<String, PieceLook>,
 ) -> Result<TexturedTerrain> {
     let start = Instant::now();
     let content = ssx_assets::content::GameContent::of(big_root);
@@ -171,12 +180,15 @@ pub fn map_textured(
         Some(t) => TrackLooks::load(big_root, t)?,
         None => TrackLooks { looks: Vec::new(), by_file: BTreeMap::new() },
     };
-    for (label, id) in pieces {
-        let m = content.map_terrain_material(id).with_context(|| format!("{label}: its terrain material"))?;
-        let index = match looks.looks.iter().position(|l| l.material == m.name) {
+    for (label, look) in pieces {
+        let m =
+            content.map_terrain_material(&look.material).with_context(|| format!("{label}: its terrain material"))?;
+        let index = match looks.looks.iter().position(|l| l.material == m.name && l.texture == look.texture) {
             Some(i) => i,
             None => {
-                looks.looks.push(TerrainLook::from_vault(big_root, &m)?);
+                let mut l = TerrainLook::from_vault(big_root, &m)?;
+                l.texture = look.texture.clone();
+                looks.looks.push(l);
                 looks.looks.len() - 1
             }
         };

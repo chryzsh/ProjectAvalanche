@@ -82,6 +82,7 @@ struct Piece {
     layers: Vec<MeshLayers>,
     groups: Vec<u8>,
     parts: Vec<(usize, usize)>,
+    uv: Option<Vec<[f32; 2]>>,
 }
 
 fn face_group(unk_a: u8) -> u8 {
@@ -178,8 +179,14 @@ pub fn load(dir: &Path, subdivide: u32, drop_files: Option<&[String]>) -> Result
     let mut pieces = Vec::with_capacity(files.len());
     for file in &files {
         let label = file.path.file_stem().unwrap_or_default().to_string_lossy().into_owned();
-        let mut piece =
-            Piece { label, mesh: TriMesh::default(), layers: Vec::new(), groups: Vec::new(), parts: Vec::new() };
+        let mut piece = Piece {
+            label,
+            mesh: TriMesh::default(),
+            layers: Vec::new(),
+            groups: Vec::new(),
+            parts: Vec::new(),
+            uv: None,
+        };
         for subd_mesh in &file.subd.meshes {
             let fan = |unk_a: u8, len: usize| std::iter::repeat_n(face_group(unk_a), len.saturating_sub(2));
             let mut mesh = match subdivide {
@@ -319,10 +326,11 @@ fn spawn_terrain(
                 }
                 let label = piece.label.clone();
                 // TODO(guess): the views cull by Bevy's frustum test on the refined, displaced mesh's box; settle: the visibility test before the terrain draw 0x829BCF90 and the ShadowObjects bin's per-cascade cull.
-                for (k, (mesh, layers, groups)) in per_mesh(piece).into_iter().enumerate() {
-                    for (group, (part, part_layers)) in split_by_group(&mesh, &layers, &groups) {
+                for (k, (mesh, layers, groups, uv)) in per_mesh(piece).into_iter().enumerate() {
+                    for (group, (part, part_layers, part_uv)) in split_by_group(&mesh, &layers, &groups, uv.as_deref())
+                    {
                         let name = Name::new(format!("{label} mesh {k} group {group}"));
-                        let mesh = textured_mesh(part, &part_layers);
+                        let mesh = textured_mesh(part, &part_layers, part_uv.as_deref());
                         let attributes: Vec<_> = mesh.attributes().map(|(a, _)| a.id).collect();
                         let part = meshes.add(mesh);
                         match set {
@@ -415,16 +423,27 @@ impl MeshLayers {
     }
 }
 
-fn textured_mesh(mesh: TriMesh, layers: &[MeshLayers]) -> Mesh {
+pub const TEXTURE_COVERAGE_SHIFT: u32 = 14;
+
+fn textured_mesh(mesh: TriMesh, layers: &[MeshLayers], texture_uv: Option<&[[f32; 2]]>) -> Mesh {
     let n = mesh.positions.len();
     let (mut color, mut uv0, mut uv1) = (Vec::with_capacity(n), Vec::with_capacity(n), Vec::with_capacity(n));
     let unorm = |b: [u8; 4]| b.map(|b| f32::from(b) / 255.0);
-    for (a, layers) in mesh.attributes.iter().zip(layers) {
+    for (v, (a, layers)) in mesh.attributes.iter().zip(layers).enumerate() {
         let (c0, c1) = terrain_vertex::pack_colors(a, &layers.lanes[..usize::from(layers.count)]);
+        let coverage = c1[0];
         let c1 = unorm(c1);
         color.push(unorm(c0));
-        uv0.push([c1[0], c1[1]]);
-        uv1.push([c1[2], layers.code()]);
+        match texture_uv.and_then(|uv| uv.get(v)) {
+            Some(&uv) => {
+                uv0.push(uv);
+                uv1.push([c1[2], layers.code() + (u32::from(coverage) << TEXTURE_COVERAGE_SHIFT) as f32]);
+            }
+            None => {
+                uv0.push([c1[0], c1[1]]);
+                uv1.push([c1[2], layers.code()]);
+            }
+        }
     }
     Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default())
         .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, mesh.positions)
@@ -454,7 +473,10 @@ fn game_vertex_normals(positions: &[[f32; 3]], faces: &[Vec<u32>]) -> Vec<[f32; 
     sum.iter().zip(&count).map(|(s, &k)| if k == 0 { [0.0, 1.0, 0.0] } else { (*s / k as f32).to_array() }).collect()
 }
 
-fn per_mesh(piece: Piece) -> Vec<(TriMesh, Vec<MeshLayers>, Vec<u8>)> {
+type TextureUv = Option<Vec<[f32; 2]>>;
+type MeshPart = (TriMesh, Vec<MeshLayers>, TextureUv);
+
+fn per_mesh(piece: Piece) -> Vec<(TriMesh, Vec<MeshLayers>, Vec<u8>, TextureUv)> {
     let (mut v0, mut t0) = (0, 0);
     let mut out = Vec::with_capacity(piece.parts.len());
     for &(nv, nt) in &piece.parts {
@@ -465,18 +487,25 @@ fn per_mesh(piece: Piece) -> Vec<(TriMesh, Vec<MeshLayers>, Vec<u8>)> {
             attributes: m.attributes[v0..v0 + nv].to_vec(),
             indices: m.indices[3 * t0..3 * (t0 + nt)].iter().map(|&i| i - v0 as u32).collect(),
         };
-        out.push((mesh, piece.layers[v0..v0 + nv].to_vec(), piece.groups[t0..t0 + nt].to_vec()));
+        let uv = piece.uv.as_ref().map(|uv| uv[v0..v0 + nv].to_vec());
+        out.push((mesh, piece.layers[v0..v0 + nv].to_vec(), piece.groups[t0..t0 + nt].to_vec(), uv));
         v0 += nv;
         t0 += nt;
     }
     out
 }
 
-fn split_by_group(mesh: &TriMesh, layers: &[MeshLayers], groups: &[u8]) -> Vec<(usize, (TriMesh, Vec<MeshLayers>))> {
+fn split_by_group(
+    mesh: &TriMesh,
+    layers: &[MeshLayers],
+    groups: &[u8],
+    uv: Option<&[[f32; 2]]>,
+) -> Vec<(usize, MeshPart)> {
     let mut out = Vec::new();
     for group in 0..3u8 {
         let mut part = TriMesh::default();
         let mut part_layers = Vec::new();
+        let mut part_uv = uv.map(|_| Vec::new());
         let mut remap = vec![u32::MAX; mesh.positions.len()];
         let (triangles, _) = mesh.indices.as_chunks::<3>();
         for (tri, _) in triangles.iter().zip(groups).filter(|(_, g)| **g == group) {
@@ -488,12 +517,15 @@ fn split_by_group(mesh: &TriMesh, layers: &[MeshLayers], groups: &[u8]) -> Vec<(
                     part.normals.push(mesh.normals[v]);
                     part.attributes.push(mesh.attributes[v]);
                     part_layers.push(layers[v]);
+                    if let (Some(out), Some(uv)) = (part_uv.as_mut(), uv) {
+                        out.push(uv[v]);
+                    }
                 }
                 part.indices.push(remap[v]);
             }
         }
         if !part.indices.is_empty() {
-            out.push((usize::from(group), (part, part_layers)));
+            out.push((usize::from(group), (part, part_layers, part_uv)));
         }
     }
     out
